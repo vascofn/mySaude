@@ -2,26 +2,23 @@ import java.io.*;
 import java.net.*;
 import java.nio.file.*;
 
+
+// classe que liga o servidor para dps o cliente conseguir mandar/receber ficheiros apartir deste
+// comando para inicializar : java mySaudeServer <nº do porto q quiserem>
 public class mySaudeServer {
 
     public static void main(String[] args) {
+        //explica o comando
         if (args.length != 1) {
             System.err.println("Usage: mySaudeServer <port>");
             System.exit(1);
         }
-
         int port;
-        try {
-            port = Integer.parseInt(args[0]);
-        } catch (NumberFormatException e) {
-            System.err.println("Error: Invalid port number.");
-            System.exit(1);
-            return;
-        }
-
+        port = Integer.parseInt(args[0]);
         System.out.println("mySaudeServer starting on port " + port + "...");
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
+            //abre o server estando este a "ouvir" o que o cliente vai mandar
             System.out.println("Server listening on port " + port);
             while (true) {
                 Socket clientSocket = serverSocket.accept();

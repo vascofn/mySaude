@@ -3,6 +3,8 @@ import java.net.*;
 import java.nio.file.*;
 import java.util.*;
 
+
+//classe que age como cliente do servidor mySaude
 public class mySaude {
 
     public static void main(String[] args) {
@@ -34,8 +36,8 @@ public class mySaude {
             System.err.println("Error: Server address must be in format address:port");
             System.exit(1);
         }
-
-        String host = serverParts[0];
+        
+        String host = serverParts[0]; // o hosto vamos ser sempre nos nas nossas maquinas pori isso ns pq que a stora n deixou que pusessemos isto como variavel global
         int port;
         try {
             port = Integer.parseInt(serverParts[1]);
@@ -45,7 +47,7 @@ public class mySaude {
             return;
         }
 
-        // Determine operation
+        // dita a operacao q fazemos
         if (params.containsKey("-e")) {
             // Send files
             List<String> files = params.get("-e");
@@ -68,19 +70,19 @@ public class mySaude {
         }
     }
 
-    /**
-     * Sends files to the server, storing them in the target user's directory.
-     */
+    // metodo usado em cima que mandao os ficheiros pra o server
     private static void sendFiles(String host, int port, String username,
                                    String targetUser, List<String> filenames) {
-        // Validate files exist locally first
+
         List<File> validFiles = new ArrayList<>();
         List<String> validNames = new ArrayList<>();
-
+        // ve se os ficheiros que queremos mandar existem e se são mesmo ficheiros 
         for (String filename : filenames) {
-            File f = new File(filename);
-            if (!f.exists()) {
-                System.err.println("Error: File '" + filename + "' does not exist locally. Skipping.");
+        Path susrDir = Paths.get("serverFiles", username, filename);
+        File f = new File(filename);
+            if (!Files.exists(susrDir)) {
+                System.err.println("Error: File '" + filename + "' does not exist in the " + username +" directory. Impossible to send a file that doesnt exist");
+                return;
             } else if (!f.isFile()) {
                 System.err.println("Error: '" + filename + "' is not a regular file. Skipping.");
             } else {
