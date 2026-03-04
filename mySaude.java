@@ -75,19 +75,24 @@ public class mySaude {
                                    String targetUser, List<String> filenames) {
 
         List<File> validFiles = new ArrayList<>();
-        List<String> validNames = new ArrayList<>();
-        // ve se os ficheiros que queremos mandar existem e se são mesmo ficheiros 
+
+
         for (String filename : filenames) {
-        Path susrDir = Paths.get("serverFiles", username, filename);
-        File f = new File(filename);
+        Path susrDir = Paths.get("serverFiles", username, filename);       
+        Path rusrDir = Paths.get("serverFiles",targetUser, filename);
+        System.out.println(susrDir);
+            File f = new File(filename);
+
             if (!Files.exists(susrDir)) {
-                System.err.println("Error: File '" + filename + "' does not exist in the " + username +" directory. Impossible to send a file that doesnt exist");
-                return;
-            } else if (!f.isFile()) {
-                System.err.println("Error: '" + filename + "' is not a regular file. Skipping.");
+                System.err.println("Error: File '" + filename + "' does not exist in the " 
+                    + username + " directory.");
+                continue; 
+            } else if (Files.exists(rusrDir)) { 
+                System.err.println("Error: File '" + filename + "' already exists in the " 
+                    + targetUser + " directory.");
+                continue;
             } else {
-                validFiles.add(f);
-                validNames.add(f.getName());
+                validFiles.add(f);  
             }
         }
 
@@ -108,35 +113,23 @@ public class mySaude {
 
             for (int i = 0; i < validFiles.size(); i++) {
                 File file = validFiles.get(i);
-                String name = validNames.get(i);
+                // manda o nome do ficheiro e o seu respetivo tamanho
+                out.writeUTF(file.getName());
+                out.writeLong(file.length());
 
-                out.writeUTF(name);
-
-                // Check server pre-response (server may reject before we send data)
-                // Server expects us to always send the file, so we send it regardless
-                // Actually our protocol: server gives OK/ERROR after filename,
-                // then if OK we send data. But server also needs to drain if ERROR.
-                // Revised: We always send file size + data; server drains if needed.
-
-                // Send file size + data
-                long fileSize = file.length();
-                out.writeLong(fileSize);
-
-                byte[] buffer = new byte[8192];
-                try (FileInputStream fis = new FileInputStream(file)) {
-                    int read;
-                    while ((read = fis.read(buffer)) != -1) {
-                        out.write(buffer, 0, read);
-                    }
-                }
+                byte[] buffer = new byte[(int) file.length()];
+                FileInputStream fis = new FileInputStream(file);
+                fis.read(buffer);
+                fis.close();
+                out.write(buffer);
                 out.flush();
 
-                // Read server response
+                // le a resposta do servidor
                 String response = in.readUTF();
                 if (response.startsWith("ERROR")) {
-                    System.err.println("Error sending '" + name + "': " + response);
+                    System.err.println("Error sending '" + file.getName() + "': " + response);
                 } else {
-                    System.out.println("File '" + name + "' sent successfully to user '" + targetUser + "'.");
+                    System.out.println("File '" + file.getName() + "' sent successfully to user '" + targetUser + "'.");
                 }
             }
 
@@ -148,19 +141,25 @@ public class mySaude {
     }
 
     /**
-     * Receives files from the server (from the current user's directory).
+     * recebe os ficheiros
      */
     private static void receiveFiles(String host, int port, String username, List<String> filenames) {
-        try (
-            Socket socket = new Socket(host, port);
-            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-            DataInputStream in = new DataInputStream(socket.getInputStream())
-        ) {
-            out.writeUTF("RECEIVE");
-            out.writeUTF(username);
-            out.writeInt(filenames.size());
-
-            for (String filename : filenames) {
+        for (String filename : filenames) {
+            Path userDir = Paths.get("serverFiles", username, filename);
+            System.out.println(userDir);
+            File destFile = new File(filename);
+            if (destFile.exists()) {
+                System.err.println("Error: File '" + filename + "' already exists locally. Skipping.");
+                continue;
+            }
+            try (
+                Socket socket = new Socket(host, port);
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                DataInputStream in = new DataInputStream(socket.getInputStream())
+            ) {
+                out.writeUTF("RECEIVE");
+                out.writeUTF(username);
+                out.writeInt(1);
                 out.writeUTF(filename);
 
                 String response = in.readUTF();
@@ -171,15 +170,6 @@ public class mySaude {
 
                 // Read file size
                 long fileSize = in.readLong();
-
-                // Check if file already exists locally
-                File destFile = new File(filename);
-                if (destFile.exists()) {
-                    System.err.println("Error: File '" + filename + "' already exists locally. Skipping.");
-                    // Drain the stream
-                    in.skipNBytes(fileSize);
-                    continue;
-                }
 
                 // Write file
                 byte[] buffer = new byte[8192];
@@ -193,14 +183,12 @@ public class mySaude {
                         remaining -= read;
                     }
                 }
-
                 System.out.println("File '" + filename + "' received successfully.");
+            } catch (ConnectException e) {
+                System.err.println("Error: Could not connect to server at " + host + ":" + port);
+            } catch (IOException e) {
+                System.err.println("Error communicating with server: " + e.getMessage());
             }
-
-        } catch (ConnectException e) {
-            System.err.println("Error: Could not connect to server at " + host + ":" + port);
-        } catch (IOException e) {
-            System.err.println("Error communicating with server: " + e.getMessage());
         }
     }
 

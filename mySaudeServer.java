@@ -47,7 +47,7 @@ class ClientHandler implements Runnable {
             DataInputStream in = new DataInputStream(socket.getInputStream());
             DataOutputStream out = new DataOutputStream(socket.getOutputStream())
         ) {
-            // Read command: SEND or RECEIVE
+            // le send e recevies 
             String command = in.readUTF();
 
             if (command.equals("SEND")) {
@@ -64,21 +64,7 @@ class ClientHandler implements Runnable {
             try { socket.close(); } catch (IOException ignored) {}
         }
     }
-
-    /**
-     * Handle SEND command: client sends files to a target user's directory.
-     * Protocol:
-     *   Client -> Server: "SEND"
-     *   Client -> Server: targetUsername (String)
-     *   Client -> Server: number of files (int)
-     *   For each file:
-     *     Client -> Server: filename (String)
-     *     Server -> Client: "OK" or "ERROR: <reason>"  (pre-check)
-     *     If OK:
-     *       Client -> Server: file size (long)
-     *       Client -> Server: file bytes
-     *       Server -> Client: "OK" or "ERROR: <reason>"
-     */
+    // se for send é usado isto
     private void handleSend(DataInputStream in, DataOutputStream out) throws IOException {
         String targetUser = in.readUTF();
         File userDir = new File("serverFiles" + File.separator + targetUser);
@@ -88,10 +74,8 @@ class ClientHandler implements Runnable {
         for (int i = 0; i < fileCount; i++) {
             String filename = in.readUTF();
 
-            // Check if user directory exists
             if (!userDir.exists()) {
                 out.writeUTF("ERROR: User directory does not exist for user '" + targetUser + "'");
-                // Still need to drain the file from the stream
                 long fileSize = in.readLong();
                 in.skipNBytes(fileSize);
                 continue;
@@ -99,7 +83,7 @@ class ClientHandler implements Runnable {
 
             File destFile = new File(userDir, filename);
 
-            // Check if file already exists
+            // ve se o ficehiro ja existe
             if (destFile.exists()) {
                 out.writeUTF("ERROR: File '" + filename + "' already exists on server for user '" + targetUser + "'");
                 long fileSize = in.readLong();
