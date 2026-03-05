@@ -1,42 +1,96 @@
 import java.io.*;
 import java.net.*;
 import java.nio.file.*;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 import java.util.*;
 
+//Alterei umas cenas para que dê para criptografar offline (-c e -d) e corrigi o protocolo SEND para bater com o do Server
 
-//classe que age como cliente do servidor mySaude
+// classe que age como cliente do servidor mySaude
 public class mySaude {
 
     public static void main(String[] args) {
-        if (args.length < 4) {
+        if (args.length < 2) {
             printUsage();
             System.exit(1);
         }
 
-        // Parse arguments
         Map<String, List<String>> params = parseArgs(args);
-
         if (params == null) {
             printUsage();
             System.exit(1);
         }
 
-        String serverAddress = getParam(params, "-s");
-        String username = getParam(params, "-u");
+        // operação principal (neste trabalho assume-se 1 por execução)
+        boolean isEncrypt = params.containsKey("-c");
+        boolean isDecrypt = params.containsKey("-d");
+        boolean isSend = params.containsKey("-e");
+        boolean isReceive = params.containsKey("-r");
 
-        if (serverAddress == null || username == null) {
-            System.err.println("Error: -s and -u are required.");
+        String username = getParam(params, "-u");
+        if (username == null) {
+            System.err.println("Error: -u (username) é obrigatório.");
             printUsage();
             System.exit(1);
         }
 
-        // Parse server address
+        // ---- CRIPTO (offline; NÃO usa servidor) ----
+        if (isEncrypt || isDecrypt) {
+            String password = getParam(params, "-p");
+            if (password == null) {
+                System.err.println("Error: -p (password da keystore) é obrigatório com -c/-d.");
+                System.exit(1);
+            }
+            char[] passChars = password.toCharArray();
+
+            if (isEncrypt) {
+                String targetUser = getParam(params, "-t");
+                if (targetUser == null) {
+                    System.err.println("Error: -t (destinatário) é obrigatório com -c.");
+                    System.exit(1);
+                }
+                List<String> files = params.get("-c");
+                if (files == null || files.isEmpty()) {
+                    System.err.println("Error: tens de indicar ficheiros com -c.");
+                    System.exit(1);
+                }
+                encryptFilesOffline(username, passChars, targetUser, files);
+                return;
+            }
+
+            if (isDecrypt) {
+                List<String> files = params.get("-d");
+                if (files == null || files.isEmpty()) {
+                    System.err.println("Error: tens de indicar ficheiros com -d.");
+                    System.exit(1);
+                }
+                decryptFilesOffline(username, passChars, files);
+                return;
+            }
+        }
+
+        // ---- REDE (usa servidor) ----
+        if (!(isSend || isReceive)) {
+            System.err.println("Error: tens de indicar uma opção principal (-e/-r/-c/-d).");
+            printUsage();
+            System.exit(1);
+        }
+
+        String serverAddress = getParam(params, "-s");
+        if (serverAddress == null) {
+            System.err.println("Error: -s (address:port) é obrigatório com -e/-r.");
+            printUsage();
+            System.exit(1);
+        }
+
         String[] serverParts = serverAddress.split(":");
         if (serverParts.length != 2) {
             System.err.println("Error: Server address must be in format address:port");
             System.exit(1);
         }
-        
+
         String host = serverParts[0]; // o hosto vamos ser sempre nos nas nossas maquinas pori isso ns pq que a stora n deixou que pusessemos isto como variavel global
         int port;
         try {
@@ -47,9 +101,7 @@ public class mySaude {
             return;
         }
 
-        // dita a operacao q fazemos
-        if (params.containsKey("-e")) {
-            // Send files
+        if (isSend) {
             List<String> files = params.get("-e");
             String targetUser = getParam(params, "-t");
             if (targetUser == null) {
@@ -58,42 +110,96 @@ public class mySaude {
             }
             sendFiles(host, port, username, targetUser, files);
 
-        } else if (params.containsKey("-r")) {
-            // Receive files
+        } else if (isReceive) {
             List<String> files = params.get("-r");
             receiveFiles(host, port, username, files);
-
-        } else {
-            System.err.println("Error: Must specify -e or -r option.");
-            printUsage();
-            System.exit(1);
         }
     }
 
-    // metodo usado em cima que mandao os ficheiros pra o server
+    // ---------------- CRIPTO: -c / -d (offline) ----------------
+
+    private static void encryptFilesOffline(String username, char[] ksPass, String targetUser, List<String> filenames) {
+        KeyStore ks;
+        try {
+            ks = KeyStoreUtil.loadKeyStore(username, ksPass);
+        } catch (Exception e) {
+            System.err.println("Erro a carregar keystore do utilizador '" + username + "': " + e.getMessage());
+            return;
+        }
+
+        X509Certificate targetCert;
+        try {
+            targetCert = KeyStoreUtil.getCertificate(ks, targetUser);
+        } catch (Exception e) {
+            System.err.println("Erro: certificado do destinatário '" + targetUser + "' não existe na tua keystore: " + e.getMessage());
+            return;
+        }
+
+        for (String fn : filenames) {
+            try {
+                Path in = Paths.get(fn);
+                Path outCipher = HybridCrypto.cipherFileName(in);
+                Path outKey = HybridCrypto.keyFileName(in, targetUser);
+
+                HybridCrypto.encryptFile(in, targetCert, outCipher, outKey);
+                System.out.println("OK: cifrado '" + fn + "' -> '" + outCipher.getFileName() + "', '" + outKey.getFileName() + "'");
+            } catch (Exception e) {
+                System.err.println("ERRO a cifrar '" + fn + "': " + e.getMessage());
+                // continua para o próximo ficheiro
+            }
+        }
+    }
+
+    private static void decryptFilesOffline(String username, char[] ksPass, List<String> cipherFiles) {
+        KeyStore ks;
+        try {
+            ks = KeyStoreUtil.loadKeyStore(username, ksPass);
+        } catch (Exception e) {
+            System.err.println("Erro a carregar keystore do utilizador '" + username + "': " + e.getMessage());
+            return;
+        }
+
+        PrivateKey mySk;
+        try {
+            mySk = KeyStoreUtil.getPrivateKey(ks, username, ksPass);
+        } catch (Exception e) {
+            System.err.println("Erro a obter chave privada do utilizador '" + username + "': " + e.getMessage());
+            return;
+        }
+
+        for (String fn : cipherFiles) {
+            try {
+                Path cipher = Paths.get(fn);
+                Path keyFile = HybridCrypto.expectedKeyFileForDecrypt(cipher, username);
+
+                if (!Files.exists(keyFile)) {
+                    System.err.println("ERRO: chave para decifrar em falta: '" + keyFile.getFileName() + "'");
+                    continue;
+                }
+
+                Path outPlain = HybridCrypto.suggestedPlainOutput(cipher);
+                HybridCrypto.decryptFile(cipher, keyFile, mySk, outPlain);
+
+                System.out.println("OK: decifrado '" + fn + "' -> '" + outPlain.getFileName() + "'");
+            } catch (Exception e) {
+                System.err.println("ERRO a decifrar '" + fn + "': " + e.getMessage());
+            }
+        }
+    }
+
+    // ---------------- REDE: -e / -r ----------------
+
     private static void sendFiles(String host, int port, String username,
-                                   String targetUser, List<String> filenames) {
+                                  String targetUser, List<String> filenames) {
 
         List<File> validFiles = new ArrayList<>();
-
-
         for (String filename : filenames) {
-        Path susrDir = Paths.get("serverFiles", username, filename);       
-        Path rusrDir = Paths.get("serverFiles",targetUser, filename);
-        System.out.println(susrDir);
             File f = new File(filename);
-
-            if (!Files.exists(susrDir)) {
-                System.err.println("Error: File '" + filename + "' does not exist in the " 
-                    + username + " directory.");
-                continue; 
-            } else if (Files.exists(rusrDir)) { 
-                System.err.println("Error: File '" + filename + "' already exists in the " 
-                    + targetUser + " directory.");
+            if (!f.exists() || !f.isFile()) {
+                System.err.println("Error: File '" + filename + "' does not exist on client.");
                 continue;
-            } else {
-                validFiles.add(f);  
             }
+            validFiles.add(f);
         }
 
         if (validFiles.isEmpty()) {
@@ -106,25 +212,38 @@ public class mySaude {
             DataOutputStream out = new DataOutputStream(socket.getOutputStream());
             DataInputStream in = new DataInputStream(socket.getInputStream())
         ) {
-            // Send command
             out.writeUTF("SEND");
             out.writeUTF(targetUser);
             out.writeInt(validFiles.size());
+            out.flush();
 
-            for (int i = 0; i < validFiles.size(); i++) {
-                File file = validFiles.get(i);
-                // manda o nome do ficheiro e o seu respetivo tamanho
+            byte[] buffer = new byte[64 * 1024];
+
+            for (File file : validFiles) {
                 out.writeUTF(file.getName());
-                out.writeLong(file.length());
-
-                byte[] buffer = new byte[(int) file.length()];
-                FileInputStream fis = new FileInputStream(file);
-                fis.read(buffer);
-                fis.close();
-                out.write(buffer);
                 out.flush();
 
-                // le a resposta do servidor
+                // o servidor responde aqui (pré-check)
+                String precheck = in.readUTF();
+                if (precheck.startsWith("ERROR")) {
+                    System.err.println("Error sending '" + file.getName() + "': " + precheck);
+                    // para manter o protocolo do servidor, envia tamanho 0 e segue
+                    out.writeLong(0L);
+                    out.flush();
+                    continue;
+                }
+
+                out.writeLong(file.length());
+
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    int read;
+                    while ((read = fis.read(buffer)) != -1) {
+                        out.write(buffer, 0, read);
+                    }
+                }
+                out.flush();
+
+                // ack final do servidor
                 String response = in.readUTF();
                 if (response.startsWith("ERROR")) {
                     System.err.println("Error sending '" + file.getName() + "': " + response);
@@ -140,13 +259,8 @@ public class mySaude {
         }
     }
 
-    /**
-     * recebe os ficheiros
-     */
     private static void receiveFiles(String host, int port, String username, List<String> filenames) {
         for (String filename : filenames) {
-            Path userDir = Paths.get("serverFiles", username, filename);
-            System.out.println(userDir);
             File destFile = new File(filename);
             if (destFile.exists()) {
                 System.err.println("Error: File '" + filename + "' already exists locally. Skipping.");
@@ -161,6 +275,7 @@ public class mySaude {
                 out.writeUTF(username);
                 out.writeInt(1);
                 out.writeUTF(filename);
+                out.flush();
 
                 String response = in.readUTF();
                 if (response.startsWith("ERROR")) {
@@ -168,12 +283,11 @@ public class mySaude {
                     continue;
                 }
 
-                // Read file size
                 long fileSize = in.readLong();
 
-                // Write file
-                byte[] buffer = new byte[8192];
+                byte[] buffer = new byte[64 * 1024];
                 long remaining = fileSize;
+
                 try (FileOutputStream fos = new FileOutputStream(destFile)) {
                     while (remaining > 0) {
                         int toRead = (int) Math.min(buffer.length, remaining);
@@ -194,11 +308,6 @@ public class mySaude {
 
     // ─── Argument parsing helpers ───────────────────────────────────────────────
 
-    /**
-     * Parses CLI args into a map: flag -> list of values.
-     * Single-value flags: -s, -u, -t, -p
-     * Multi-value flags: -e, -r
-     */
     private static Map<String, List<String>> parseArgs(String[] args) {
         Map<String, List<String>> params = new LinkedHashMap<>();
         String currentFlag = null;
@@ -219,9 +328,6 @@ public class mySaude {
         return params;
     }
 
-    /**
-     * Returns the first value of a flag, or null.
-     */
     private static String getParam(Map<String, List<String>> params, String flag) {
         List<String> values = params.get(flag);
         if (values == null || values.isEmpty()) return null;
@@ -230,7 +336,9 @@ public class mySaude {
 
     private static void printUsage() {
         System.out.println("Usage:");
-        System.out.println("  Send files:    mySaude -s address:port -u username -e file1 [file2 ...] -t targetUser");
-        System.out.println("  Receive files: mySaude -s address:port -u username -r file1 [file2 ...]");
+        System.out.println("  Cifrar:        mySaude -u username -p password -c f1 [f2 ...] -t destinatario");
+        System.out.println("  Decifrar:      mySaude -u username -p password -d f1.cifrado [f2.cifrado ...]");
+        System.out.println("  Enviar:        mySaude -s address:port -u username -e file1 [file2 ...] -t targetUser");
+        System.out.println("  Receber:       mySaude -s address:port -u username -r file1 [file2 ...]");
     }
 }
