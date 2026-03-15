@@ -159,7 +159,7 @@ public final class HybridCrypto {
         byte[] wrappedKey;
         try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(wrappedKeyFile.toFile())))) {
             int len = dis.readInt();
-            if (len <= 0 || len > 8192) { // sanity
+            if (len <= 0 || len > 8192) { // sanidade: chave cifrada não pode ser maior que 8KB
                 throw new IllegalStateException("Tamanho inválido da chave cifrada: " + len);
             }
             wrappedKey = dis.readNBytes(len);
