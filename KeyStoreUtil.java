@@ -24,7 +24,7 @@ public final class KeyStoreUtil {
 
     public static KeyStore loadKeyStore(String username, char[] password) throws Exception {
         String ksPath = keystoreFileName(username);
-        KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType()); 
+        KeyStore ks = KeyStore.getInstance("PKCS12"); 
         try (FileInputStream fis = new FileInputStream(ksPath)) {
             ks.load(fis, password);
         } catch (IOException e) {

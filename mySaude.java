@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.*;
 import java.nio.file.*;
+import java.security.Key;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
@@ -28,6 +29,10 @@ public class mySaude {
         boolean isDecrypt = params.containsKey("-d");
         boolean isSend = params.containsKey("-e");
         boolean isReceive = params.containsKey("-r");
+        boolean isSign = params.containsKey("-a");
+        boolean isValidate = params.containsKey("-v");
+    System.out.println(isSign);        
+
 
         String username = getParam(params, "-u");
         if (username == null) {
@@ -35,7 +40,39 @@ public class mySaude {
             printUsage();
             System.exit(1);
         }
+        // assinaturas digitais
+        if (isSign || isValidate){
+            System.out.println("olaaaa");
+            String password = getParam(params, "-p");
+            if (password == null) {
+                System.err.println("Error: -p (password da keystore) é obrigatório com -c/-d.");
+                System.exit(1);
+            }
+            char[] passChars = password.toCharArray();
 
+            if (isSign){
+                List<String> files = params.get("-a");
+                if (files.isEmpty()){
+                    System.err.println("Error: -a não deste nenhum file.");
+                    System.exit(1);
+                }
+                try {
+                    KeyStore ks = KeyStoreUtil.loadKeyStore(username, passChars);
+                    PrivateKey pk = KeyStoreUtil.getPrivateKey(ks, username, passChars);
+                    for (String f : files ){
+                        byte [] assinatura = DigitalSignatureUtil.signFile(f, pk);
+                        String ficheiro_assinado = f + ".assinatura." + username;
+                        Files.write(Path.of(ficheiro_assinado),assinatura);
+                    }
+                } catch (Exception e) {
+                    System.err.println("Erro ao assinar ficheiro: " + e.getMessage());
+                    System.exit(1);
+                }
+                return;
+            }
+        }
+
+        
         // ---- CRIPTO (offline; NÃO usa servidor) ----
         if (isEncrypt || isDecrypt) {
             String password = getParam(params, "-p");
@@ -336,9 +373,12 @@ public class mySaude {
 
     private static void printUsage() {
         System.out.println("Usage:");
-        System.out.println("  Cifrar:        mySaude -u username -p password -c f1 [f2 ...] -t destinatario");
-        System.out.println("  Decifrar:      mySaude -u username -p password -d f1.cifrado [f2.cifrado ...]");
+        System.out.println("  Cifrar:         mySaude -u username -p password -c f1 [f2 ...] -t destinatario");
+        System.out.println("  Decifrar:     mySaude -u username -p password -d f1.cifrado [f2.cifrado ...]");
         System.out.println("  Enviar:        mySaude -s address:port -u username -e file1 [file2 ...] -t targetUser");
-        System.out.println("  Receber:       mySaude -s address:port -u username -r file1 [file2 ...]");
+        System.out.println("  Receber:     mySaude -s address:port -u username -r file1 [file2 ...]");
+        System.out.println("  Assinarr:     mySaude -u username -p password_utilizador -a [ficheiros]");
+        System.out.println("  Validar:       mySaude -u username -p password_utilizador -v ficheiro -destinatario");
+
     }
 }
