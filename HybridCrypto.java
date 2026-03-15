@@ -35,14 +35,13 @@ import java.security.cert.X509Certificate;
 public final class HybridCrypto {
 
     private static final String AES_TRANSFORMATION = "AES/GCM/NoPadding";
-    private static final int AES_KEY_BITS = 128; // requisito
+    private static final int AES_KEY_BITS = 128;
     private static final int GCM_TAG_BITS = 128;
-    private static final int IV_LEN = 12; // recomendado em GCM
+    private static final int IV_LEN = 12;
 
     private HybridCrypto() {}
 
     private static Cipher rsaCipherEncrypt(PublicKey pk) throws Exception {
-        // tentar OAEP SHA-256; se não existir no provider, cair para OAEP SHA-1
         try {
             Cipher c = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
             c.init(Cipher.ENCRYPT_MODE, pk);
@@ -107,26 +106,21 @@ public final class HybridCrypto {
             throw new IllegalArgumentException("Ficheiro não existe: " + input);
         }
 
-        // 1) AES key + IV
         SecretKey aesKey = generateAesKey();
         byte[] iv = randomIv();
 
-        // 2) Cifrar dados (AES/GCM)
         Cipher aesCipher = Cipher.getInstance(AES_TRANSFORMATION);
         aesCipher.init(Cipher.ENCRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_BITS, iv));
 
-        // 3) Cifrar (wrap) chave AES com RSA do destinatário
         PublicKey recipientPk = recipientCert.getPublicKey();
         Cipher rsaEnc = rsaCipherEncrypt(recipientPk);
         byte[] wrappedKey = rsaEnc.doFinal(aesKey.getEncoded());
 
-        // 4) Escrever ficheiro .chave.<destinatario> (tamanho + bytes)
         try (DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(outKey.toFile())))) {
             dos.writeInt(wrappedKey.length);
             dos.write(wrappedKey);
         }
 
-        // 5) Escrever ficheiro .cifrado com cabeçalho simples: [versao][ivLen][iv][ciphertext...]
         try (FileOutputStream fos = new FileOutputStream(outCipher.toFile());
              BufferedOutputStream bos = new BufferedOutputStream(fos)) {
 
@@ -162,7 +156,6 @@ public final class HybridCrypto {
             throw new IllegalArgumentException("Ficheiro da chave cifrada não existe: " + wrappedKeyFile);
         }
 
-        // 1) Ler chave AES cifrada (RSA)
         byte[] wrappedKey;
         try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(wrappedKeyFile.toFile())))) {
             int len = dis.readInt();
@@ -175,16 +168,13 @@ public final class HybridCrypto {
             }
         }
 
-        // 2) RSA decrypt => bytes da chave AES
         Cipher rsaDec = rsaCipherDecrypt(myPrivateKey);
         byte[] aesKeyBytes = rsaDec.doFinal(wrappedKey);
         if (aesKeyBytes.length != (AES_KEY_BITS / 8)) {
-            // não é fatal, mas indica que algo está errado (keys/algos diferentes)
             throw new IllegalStateException("Tamanho inesperado da chave AES: " + aesKeyBytes.length + " bytes.");
         }
         SecretKey aesKey = new SecretKeySpec(aesKeyBytes, "AES");
 
-        // 3) Ler cabeçalho do .cifrado para obter IV
         try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(cipherFile.toFile()))) {
             int version = bis.read();
             if (version != 1) {
@@ -202,7 +192,6 @@ public final class HybridCrypto {
             Cipher aesCipher = Cipher.getInstance(AES_TRANSFORMATION);
             aesCipher.init(Cipher.DECRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_BITS, iv));
 
-            // 4) Decifrar dados em streaming
             try (CipherInputStream cis = new CipherInputStream(bis, aesCipher);
                  BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(outPlain.toFile()))) {
 
