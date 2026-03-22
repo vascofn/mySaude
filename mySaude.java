@@ -4,7 +4,7 @@ import java.nio.file.*;
 import java.security.Key;
 import java.security.KeyStore;
 import java.security.PrivateKey;
-import java.security.cert.X509Certificate;
+import java.security.cert.Certificate;
 import java.util.*;
 
 //Alterei umas cenas para que dê para criptografar offline (-c e -d) e corrigi o protocolo SEND para bater com o do Server
@@ -31,7 +31,6 @@ public class mySaude {
         boolean isReceive = params.containsKey("-r");
         boolean isSign = params.containsKey("-a");
         boolean isValidate = params.containsKey("-v");
-    System.out.println(isSign);        
 
 
         String username = getParam(params, "-u");
@@ -42,14 +41,13 @@ public class mySaude {
         }
         // assinaturas digitais
         if (isSign || isValidate){
-            System.out.println("olaaaa");
             String password = getParam(params, "-p");
             if (password == null) {
                 System.err.println("Error: -p (password da keystore) é obrigatório com -c/-d.");
                 System.exit(1);
             }
             char[] passChars = password.toCharArray();
-
+            // assina o ficheiro
             if (isSign){
                 List<String> files = params.get("-a");
                 if (files.isEmpty()){
@@ -70,6 +68,48 @@ public class mySaude {
                 }
                 return;
             }
+        // valida o ficheiro assinado
+        if(isValidate){
+            String targetUser = getParam(params, "-t");
+            if (targetUser == null) {
+                System.err.println("Error: -t (username de quem assinou) é obrigatório com -v.");
+                System.exit(1);
+            }
+            List<String> files = params.get("-v");
+            if (files == null || files.isEmpty()) {
+                System.err.println("Error: -v não deste nenhum ficheiro para verificar a assinatura.");
+                System.exit(1);
+            }
+            try {
+                KeyStore ks = KeyStoreUtil.loadKeyStore(username, passChars);
+                Certificate cert = ks.getCertificate(targetUser);
+                for (String f : files) {
+                    File ficheiro = new File(f);
+                    if (!ficheiro.exists()) { 
+                        System.err.println("ERRO: ficheiro '" + f + "' não existe.");
+                        continue;
+                    }
+                    String assinaturaPath = f + ".assinatura." + targetUser;
+                    File assinaturaFile = new File(assinaturaPath);
+                    if (!assinaturaFile.exists()) {
+                        System.err.println("ERRO: ficheiro de assinatura '" + assinaturaPath + "' não existe.");
+                        continue;
+                    }
+                    byte[] assinaturaBytes = Files.readAllBytes(assinaturaFile.toPath());
+                    boolean valida = DigitalSignatureUtil.verifyFileSignature(ficheiro, assinaturaBytes, cert);
+
+                    if (valida) {
+                    System.out.println("OK: assinatura de '" + f + "' por '" + targetUser + "' é VÁLIDA.");
+                    } else {
+                        System.out.println("INVÁLIDA: assinatura de '" + f + "' por '" + targetUser + "' é INVÁLIDA.");
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Erro ao verificar assinatura: " + e.getMessage());
+                System.exit(1);
+            }
+            return;
+        }
         }
 
         
@@ -164,9 +204,9 @@ public class mySaude {
             return;
         }
 
-        X509Certificate targetCert;
+        Certificate targetCert;
         try {
-            targetCert = KeyStoreUtil.getCertificate(ks, targetUser);
+            targetCert = ks.getCertificate(targetUser);
         } catch (Exception e) {
             System.err.println("Erro: certificado do destinatário '" + targetUser + "' não existe na tua keystore: " + e.getMessage());
             return;

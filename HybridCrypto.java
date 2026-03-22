@@ -16,7 +16,7 @@ import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
+import java.security.cert.Certificate;
 
 //Esta parte é a cifra hibrida que é usada para cifrar os ficheiros antes de serem enviados
 // e depois decifrar os ficheiros recebidos, usando AES para os dados e RSA para a chave AES.
@@ -101,7 +101,7 @@ public final class HybridCrypto {
      * @param outCipher output: <input>.cifrado
      * @param outKey output: <input>.chave.<destinatario>
      */
-    public static void encryptFile(Path input, X509Certificate recipientCert, Path outCipher, Path outKey) throws Exception {
+    public static void encryptFile(Path input, Certificate recipientCert, Path outCipher, Path outKey) throws Exception {
         if (!Files.exists(input) || !Files.isRegularFile(input)) {
             throw new IllegalArgumentException("Ficheiro não existe: " + input);
         }

@@ -1,7 +1,6 @@
 import java.io.*;
 import java.security.*;
-import java.security.cert.X509Certificate;
-import java.nio.file.Files;
+import java.security.cert.Certificate;
 
 // asinturas digitais
 public class DigitalSignatureUtil {
@@ -39,7 +38,7 @@ public class DigitalSignatureUtil {
     }
 
     // Helper: verifica assinatura usando X509Certificate
-    public static boolean verifyFileSignature(File file, byte[] signatureBytes, X509Certificate cert) throws Exception {
+    public static boolean verifyFileSignature(File file, byte[] signatureBytes, Certificate cert) throws Exception {
         return verifyFileSignature(file, signatureBytes, cert.getPublicKey());
     }
 }

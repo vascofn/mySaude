@@ -44,22 +44,5 @@ public final class KeyStoreUtil {
         return (PrivateKey) key;
     }
 
-    public static X509Certificate getCertificate(KeyStore ks, String alias) {
-        Certificate cert;
-        try {
-            cert = ks.getCertificate(alias);
-        } catch (Exception e) {
-            throw new IllegalStateException("Erro a obter certificado para o alias '" + alias + "': " + e.getMessage(), e);
-        }
-        if (cert == null) {
-            throw new IllegalStateException(
-                "Certificado em falta na keystore para o alias '" + alias + "'. " +
-                "Importa-o com keytool (ex.: certificado do destinatário)."
-            );
-        }
-        if (!(cert instanceof X509Certificate)) {
-            throw new IllegalStateException("O certificado do alias '" + alias + "' não é X509.");
-        }
-        return (X509Certificate) cert;
-    }
+
 }
