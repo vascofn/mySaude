@@ -31,6 +31,8 @@ public class mySaude {
         boolean isReceive = params.containsKey("-r");
         boolean isSign = params.containsKey("-a");
         boolean isValidate = params.containsKey("-v");
+        boolean isSignandisSend = params.containsKey("-ae");
+        boolean isValidateandisReceive = params.containsKey("-rv");
 
 
         String username = getParam(params, "-u");
@@ -49,23 +51,7 @@ public class mySaude {
             char[] passChars = password.toCharArray();
             // assina o ficheiro
             if (isSign){
-                List<String> files = params.get("-a");
-                if (files.isEmpty()){
-                    System.err.println("Error: -a não deste nenhum file.");
-                    System.exit(1);
-                }
-                try {
-                    KeyStore ks = KeyStoreUtil.loadKeyStore(username, passChars);
-                    PrivateKey pk = KeyStoreUtil.getPrivateKey(ks, username, passChars);
-                    for (String f : files ){
-                        byte [] assinatura = DigitalSignatureUtil.signFile(f, pk);
-                        String ficheiro_assinado = f + ".assinatura." + username;
-                        Files.write(Path.of(ficheiro_assinado),assinatura);
-                    }
-                } catch (Exception e) {
-                    System.err.println("Erro ao assinar ficheiro: " + e.getMessage());
-                    System.exit(1);
-                }
+                signFiles(username, passChars, params.get("-a"));
                 return;
             }
         // valida o ficheiro assinado
@@ -75,43 +61,21 @@ public class mySaude {
                 System.err.println("Error: -t (username de quem assinou) é obrigatório com -v.");
                 System.exit(1);
             }
-            List<String> files = params.get("-v");
-            if (files == null || files.isEmpty()) {
-                System.err.println("Error: -v não deste nenhum ficheiro para verificar a assinatura.");
-                System.exit(1);
-            }
-            try {
-                KeyStore ks = KeyStoreUtil.loadKeyStore(username, passChars);
-                Certificate cert = ks.getCertificate(targetUser);
-                for (String f : files) {
-                    File ficheiro = new File(f);
-                    if (!ficheiro.exists()) { 
-                        System.err.println("ERRO: ficheiro '" + f + "' não existe.");
-                        continue;
-                    }
-                    String assinaturaPath = f + ".assinatura." + targetUser;
-                    File assinaturaFile = new File(assinaturaPath);
-                    if (!assinaturaFile.exists()) {
-                        System.err.println("ERRO: ficheiro de assinatura '" + assinaturaPath + "' não existe.");
-                        continue;
-                    }
-                    byte[] assinaturaBytes = Files.readAllBytes(assinaturaFile.toPath());
-                    boolean valida = DigitalSignatureUtil.verifyFileSignature(ficheiro, assinaturaBytes, cert);
-
-                    if (valida) {
-                    System.out.println("OK: assinatura de '" + f + "' por '" + targetUser + "' é VÁLIDA.");
-                    } else {
-                        System.out.println("INVÁLIDA: assinatura de '" + f + "' por '" + targetUser + "' é INVÁLIDA.");
-                    }
-                }
-            } catch (Exception e) {
-                System.err.println("Erro ao verificar assinatura: " + e.getMessage());
-                System.exit(1);
-            }
+            validateFiles(username, passChars, targetUser, params.get("-v"));
             return;
         }
         }
-
+        
+        if (isSignandisSend){
+            String password = getParam(params, "-p");
+            if (password == null) {
+                System.err.println("Error: -p (password da keystore) é obrigatório com -c/-d.");
+                System.exit(1);
+            }
+            char[] passChars = password.toCharArray();
+            signFiles(username, passChars, params.get("-ae"));
+            sendFiles(password , 0, username, password, null);
+        }
         
         // ---- CRIPTO (offline; NÃO usa servidor) ----
         if (isEncrypt || isDecrypt) {
@@ -266,9 +230,7 @@ public class mySaude {
 
     // ---------------- REDE: -e / -r ----------------
 
-    private static void sendFiles(String host, int port, String username,
-                                  String targetUser, List<String> filenames) {
-
+    private static void sendFiles(String host, int port, String username,String targetUser, List<String> filenames) {
         List<File> validFiles = new ArrayList<>();
         for (String filename : filenames) {
             File f = new File(filename);
@@ -278,12 +240,10 @@ public class mySaude {
             }
             validFiles.add(f);
         }
-
         if (validFiles.isEmpty()) {
             System.out.println("No valid files to send.");
             return;
         }
-
         try (
             Socket socket = new Socket(host, port);
             DataOutputStream out = new DataOutputStream(socket.getOutputStream());
@@ -293,14 +253,11 @@ public class mySaude {
             out.writeUTF(targetUser);
             out.writeInt(validFiles.size());
             out.flush();
-
-            byte[] buffer = new byte[64 * 1024];
-
+            byte[] buffer = new byte[1024];
             for (File file : validFiles) {
                 out.writeUTF(file.getName());
                 out.flush();
-
-                // o servidor responde aqui (pré-check)
+                // o servidor responde aqui 
                 String precheck = in.readUTF();
                 if (precheck.startsWith("ERROR")) {
                     System.err.println("Error sending '" + file.getName() + "': " + precheck);
@@ -309,9 +266,7 @@ public class mySaude {
                     out.flush();
                     continue;
                 }
-
                 out.writeLong(file.length());
-
                 try (FileInputStream fis = new FileInputStream(file)) {
                     int read;
                     while ((read = fis.read(buffer)) != -1) {
@@ -319,7 +274,6 @@ public class mySaude {
                     }
                 }
                 out.flush();
-
                 // ack final do servidor
                 String response = in.readUTF();
                 if (response.startsWith("ERROR")) {
@@ -328,7 +282,6 @@ public class mySaude {
                     System.out.println("File '" + file.getName() + "' sent successfully to user '" + targetUser + "'.");
                 }
             }
-
         } catch (ConnectException e) {
             System.err.println("Error: Could not connect to server at " + host + ":" + port);
         } catch (IOException e) {
@@ -362,7 +315,7 @@ public class mySaude {
 
                 long fileSize = in.readLong();
 
-                byte[] buffer = new byte[64 * 1024];
+                byte[] buffer = new byte[1024];
                 long remaining = fileSize;
 
                 try (FileOutputStream fos = new FileOutputStream(destFile)) {
@@ -382,7 +335,72 @@ public class mySaude {
             }
         }
     }
+        // ---------------- ASSINATURA DIGITAL: -a ----------------
 
+        private static void signFiles(String username, char[] passChars, List<String> files) {
+            if (files == null || files.isEmpty()) {
+                System.err.println("Error: -a não deste nenhum file.");
+                System.exit(1);
+            }
+            try {
+                KeyStore ks = KeyStoreUtil.loadKeyStore(username, passChars);
+                PrivateKey pk = KeyStoreUtil.getPrivateKey(ks, username, passChars);
+                for (String f : files) {
+                    File ficheiro = new File(f);
+                    if (!ficheiro.exists()) {
+                        System.err.println("ERRO: ficheiro '" + f + "' não existe. A saltar.");
+                        continue;
+                    }
+                    byte[] assinatura = DigitalSignatureUtil.signFile(f, pk);
+                    String ficheiroAssinado = f + ".assinatura." + username;
+                    Files.write(Path.of(ficheiroAssinado), assinatura);
+                    System.out.println("OK: ficheiro '" + f + "' assinado -> '" + ficheiroAssinado + "'");
+                }
+            } catch (Exception e) {
+                System.err.println("Erro ao assinar ficheiro: " + e.getMessage());
+                System.exit(1);
+            }
+        }
+
+        // ---------------- VALIDAR ASSINATURA: -v ----------------
+
+        private static void validateFiles(String username, char[] passChars, String targetUser, List<String> files) {
+            if (files == null || files.isEmpty()) {
+                System.err.println("Error: -v não deste nenhum ficheiro para verificar a assinatura.");
+                System.exit(1);
+            }
+            try {
+                KeyStore ks = KeyStoreUtil.loadKeyStore(username, passChars);
+                Certificate cert = ks.getCertificate(targetUser);
+                if (cert == null) {
+                    System.err.println("ERRO: certificado de '" + targetUser + "' não encontrado na keystore.");
+                    System.exit(1);
+                }
+                for (String f : files) {
+                    File ficheiro = new File(f);
+                    if (!ficheiro.exists()) {
+                        System.err.println("ERRO: ficheiro '" + f + "' não existe.");
+                        continue;
+                    }
+                    String assinaturaPath = f + ".assinatura." + targetUser;
+                    File assinaturaFile = new File(assinaturaPath);
+                    if (!assinaturaFile.exists()) {
+                        System.err.println("ERRO: ficheiro de assinatura '" + assinaturaPath + "' não existe.");
+                        continue;
+                    }
+                    byte[] assinaturaBytes = Files.readAllBytes(assinaturaFile.toPath());
+                    boolean valida = DigitalSignatureUtil.verifyFileSignature(ficheiro, assinaturaBytes, cert);
+                    if (valida) {
+                        System.out.println("OK: assinatura de '" + f + "' por '" + targetUser + "' é VÁLIDA.");
+                    } else {
+                        System.out.println("INVÁLIDA: assinatura de '" + f + "' por '" + targetUser + "' é INVÁLIDA.");
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Erro ao verificar assinatura: " + e.getMessage());
+                System.exit(1);
+            }
+        }
     // ─── Argument parsing helpers ───────────────────────────────────────────────
 
     private static Map<String, List<String>> parseArgs(String[] args) {

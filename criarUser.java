@@ -2,7 +2,6 @@ import java.io.*;
 import java.nio.file.*;
 
 /**
- * YA ESYA PARTE FOI AI FODAM-SE RAH
  * Creates the directory: serverFiles/<username>
  * This must be run on the server machine before the user can receive files.
  */
