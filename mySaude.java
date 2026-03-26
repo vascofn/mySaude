@@ -65,18 +65,94 @@ public class mySaude {
             return;
         }
         }
-        
+        // sing and send 
         if (isSignandisSend){
             String password = getParam(params, "-p");
             if (password == null) {
                 System.err.println("Error: -p (password da keystore) é obrigatório com -c/-d.");
                 System.exit(1);
             }
+            String serverAddress = getParam(params, "-s");
+            if (serverAddress == null) {
+                System.err.println("Error: -s (address:port) é obrigatório com -e/-r.");
+                printUsage();
+                System.exit(1);
+            }
+            String[] serverParts = serverAddress.split(":");
+            if (serverParts.length != 2) {
+                System.err.println("Error: Server address must be in format address:port");
+                System.exit(1);
+            }
+            String host = serverParts[0]; 
+            int port;
+            try {
+                port = Integer.parseInt(serverParts[1]);
+            } catch (NumberFormatException e) {
+                System.err.println("Error: Invalid port number.");
+                System.exit(1);
+                return;
+            }
+            String targetUser = getParam(params, "-t");
+            if (targetUser == null) {
+                System.err.println("Error: -t (username de quem assinou) é obrigatório com -v.");
+                System.exit(1);
+            }
             char[] passChars = password.toCharArray();
-            signFiles(username, passChars, params.get("-ae"));
-            sendFiles(password , 0, username, password, null);
+            List<String> files = signFiles(username, passChars, params.get("-ae"));
+            sendFiles(host,port,username,targetUser, files);
+            return;
         }
-        
+        // validar e receber 
+        if (isValidateandisReceive) {
+        String password = getParam(params, "-p");
+        if (password == null) {
+            System.err.println("Error: -p (password da keystore) é obrigatório com -rv.");
+            System.exit(1);
+        }
+        String serverAddress = getParam(params, "-s");
+        if (serverAddress == null) {
+            System.err.println("Error: -s (address:port) é obrigatório com -rv.");
+            System.exit(1);
+        }
+        String[] serverParts = serverAddress.split(":");
+        if (serverParts.length != 2) {
+            System.err.println("Error: Server address must be in format address:port");
+            System.exit(1);
+        }
+        String host = serverParts[0];
+        int port;
+        try {
+            port = Integer.parseInt(serverParts[1]);
+        } catch (NumberFormatException e) {
+            System.err.println("Error: Invalid port number.");
+            System.exit(1);
+            return;
+        }
+        String targetUser = getParam(params, "-t");
+        if (targetUser == null) {
+            System.err.println("Error: -t (username de quem assinou) é obrigatório com -rv.");
+            System.exit(1);
+        }
+        char[] passChars = password.toCharArray();
+        List<String> files = params.get("-rv"); 
+
+        // Para cada ficheiro, pede também a assinatura ao servidor
+        List<String> ficheirosParaReceber = new ArrayList<>();
+        for (String f : files) {
+            ficheirosParaReceber.add(f);                              // ficheiro original
+            ficheirosParaReceber.add(f + ".assinatura." + targetUser); // assinatura
+        }
+
+        // Recebe ambos do servidor
+        receiveFiles(host, port, username, ficheirosParaReceber);
+
+        // Valida as assinaturas localmente
+        validateFiles(username, passChars, targetUser, files);
+        return;
+    }
+
+
+
         // ---- CRIPTO (offline; NÃO usa servidor) ----
         if (isEncrypt || isDecrypt) {
             String password = getParam(params, "-p");
@@ -337,7 +413,8 @@ public class mySaude {
     }
         // ---------------- ASSINATURA DIGITAL: -a ----------------
 
-        private static void signFiles(String username, char[] passChars, List<String> files) {
+        private static List<String> signFiles(String username, char[] passChars, List<String> files) {
+            List<String> lista_files = new ArrayList<>();
             if (files == null || files.isEmpty()) {
                 System.err.println("Error: -a não deste nenhum file.");
                 System.exit(1);
@@ -354,12 +431,16 @@ public class mySaude {
                     byte[] assinatura = DigitalSignatureUtil.signFile(f, pk);
                     String ficheiroAssinado = f + ".assinatura." + username;
                     Files.write(Path.of(ficheiroAssinado), assinatura);
+                    lista_files.add(f);
+                    lista_files.add(ficheiroAssinado);
                     System.out.println("OK: ficheiro '" + f + "' assinado -> '" + ficheiroAssinado + "'");
                 }
             } catch (Exception e) {
                 System.err.println("Erro ao assinar ficheiro: " + e.getMessage());
                 System.exit(1);
             }
+            return lista_files;
+
         }
 
         // ---------------- VALIDAR ASSINATURA: -v ----------------

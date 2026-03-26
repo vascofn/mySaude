@@ -19,7 +19,7 @@ public final class KeyStoreUtil {
     private KeyStoreUtil() {}
 
     public static String keystoreFileName(String username) {
-        return "keystore." + username;
+        return "keys/keystore." + username;
     }
 
     public static KeyStore loadKeyStore(String username, char[] password) throws Exception {
