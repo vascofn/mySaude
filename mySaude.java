@@ -34,6 +34,8 @@ public class mySaude {
         boolean isSignandisSend = params.containsKey("-ae");
         boolean isValidateandisReceive = params.containsKey("-rv");
         boolean isSecureEnvelope = params.containsKey("-ace");
+        boolean isEncryptAndSend = params.containsKey("-ce");
+        boolean isReceiveAndDecrypt = params.containsKey("-rd");
         boolean isReceiveDecryptVerify = params.containsKey("-rdv");
 
 
@@ -233,6 +235,83 @@ public class mySaude {
             }
             char[] passChars = password.toCharArray();
             secureEnvelopeReceive(host, port, username, passChars, signer, files);
+            return;
+        }
+
+        // -ce: cifrar + enviar
+        if (isEncryptAndSend) {
+            String password = getParam(params, "-p");
+            if (password == null) {
+                System.err.println("Error: -p (password da keystore) é obrigatório com -ce.");
+                System.exit(1);
+            }
+            String serverAddressCE = getParam(params, "-s");
+            if (serverAddressCE == null) {
+                System.err.println("Error: -s (address:port) é obrigatório com -ce.");
+                System.exit(1);
+            }
+            String[] serverPartsCE = serverAddressCE.split(":");
+            if (serverPartsCE.length != 2) {
+                System.err.println("Error: Server address must be in format address:port");
+                System.exit(1);
+            }
+            String hostCE = serverPartsCE[0];
+            int portCE ;
+            try {
+                portCE = Integer.parseInt(serverPartsCE[1]);
+            } catch (NumberFormatException e) {
+                System.err.println("Error: Invalid port number.");
+                System.exit(1);
+                return;
+            }
+            String targetUser = getParam(params, "-t");
+            if (targetUser == null) {
+                System.err.println("Error: -t (destinatário) é obrigatório com -ce.");
+                System.exit(1);
+            }
+            List<String> files = params.get("-ce");
+            if (files == null || files.isEmpty()) {
+                System.err.println("Error: tens de indicar ficheiros com -ce.");
+                System.exit(1);
+            }
+            char[] passChars = password.toCharArray();
+            encryptAndSend(hostCE, portCE, username, passChars, targetUser, files);
+            return;
+        }
+        
+        // -rd: receber + decifrar
+        if (isReceiveAndDecrypt) {
+            String password = getParam(params, "-p");
+            if (password == null) {
+                System.err.println("Error: -p (password da keystore) é obrigatório com -rd.");
+                System.exit(1);
+            }
+            String serverAddressRD = getParam(params, "-s");
+            if (serverAddressRD == null) {
+                System.err.println("Error: -s (address:port) é obrigatório com -rd.");
+                System.exit(1);
+            }
+            String[] serverPartsRD = serverAddressRD.split(":");
+            if (serverPartsRD.length != 2) {
+                System.err.println("Error: Server address must be in format address:port");
+                System.exit(1);
+            }
+            String hostRD = serverPartsRD[0];
+            int portRD;
+            try {
+                portRD = Integer.parseInt(serverPartsRD[1]);
+            } catch (NumberFormatException e) {
+                System.err.println("Error: Invalid port number.");
+                System.exit(1);
+                return;
+            }
+            List<String> files = params.get("-rd");
+            if (files == null || files.isEmpty()) {
+                System.err.println("Error: tens de indicar ficheiros com -rd.");
+                System.exit(1);
+            }
+            char[] passChars = password.toCharArray();
+            receiveAndDecrypt(hostRD, portRD, username, passChars, files);
             return;
         }
 
@@ -767,6 +846,132 @@ private static void secureEnvelopeReceive(String host, int port, String username
 
         return params;
     }
+
+        /**
+     * -ce: para cada ficheiro:
+     *   1. Cifra → ficheiro.cifrado + ficheiro.chave.targetUser
+     *   2. Envia os 2 ficheiros para o servidor (pasta do targetUser)
+     */
+    private static void encryptAndSend(String host, int port, String username,
+                                        char[] passChars, String targetUser,
+                                        List<String> filenames) {
+        // Carregar keystore
+        KeyStore ks;
+        try {
+            ks = KeyStoreUtil.loadKeyStore(username, passChars);
+        } catch (Exception e) {
+            System.err.println("Erro a carregar keystore de '" + username + "': " + e.getMessage());
+            return;
+        }
+    
+        // Certificado do destinatário (para cifrar a chave AES)
+        java.security.cert.Certificate targetCert;
+        try {
+            targetCert = ks.getCertificate(targetUser);
+            if (targetCert == null) throw new Exception("Certificado não encontrado.");
+        } catch (Exception e) {
+            System.err.println("Erro: certificado de '" + targetUser + "' não existe na tua keystore. Importa-o com keytool.");
+            return;
+        }
+    
+        List<String> filesToSend = new ArrayList<>();
+    
+        for (String fn : filenames) {
+            java.nio.file.Path input = java.nio.file.Paths.get(fn);
+    
+            if (!java.nio.file.Files.exists(input)) {
+                System.err.println("ERRO: ficheiro '" + fn + "' não existe. A saltar.");
+                continue;
+            }
+    
+            String cipherFile = fn + ".cifrado";
+            String keyFile    = fn + ".chave." + targetUser;
+    
+            try {
+                // Cifrar
+                java.nio.file.Path outCipher = java.nio.file.Paths.get(cipherFile);
+                java.nio.file.Path outKey    = java.nio.file.Paths.get(keyFile);
+                HybridCrypto.encryptFile(input, targetCert, outCipher, outKey);
+                System.out.println("OK: cifrado '" + fn + "' -> '" + cipherFile + "', '" + keyFile + "'");
+    
+                // Adicionar à lista de envio
+                filesToSend.add(cipherFile);
+                filesToSend.add(keyFile);
+    
+            } catch (Exception e) {
+                System.err.println("ERRO a cifrar '" + fn + "': " + e.getMessage());
+                new java.io.File(cipherFile).delete();
+                new java.io.File(keyFile).delete();
+            }
+        }
+    
+        if (filesToSend.isEmpty()) {
+            System.out.println("Nenhum ficheiro para enviar.");
+            return;
+        }
+    
+        // Enviar para o servidor
+        sendFiles(host, port, username, targetUser, filesToSend);
+    }
+    
+    /**
+     * -rd: para cada ficheiro:
+     *   1. Recebe do servidor: ficheiro.cifrado + ficheiro.chave.username
+     *   2. Decifra o .cifrado → ficheiro.decifrado
+     */
+    private static void receiveAndDecrypt(String host, int port, String username,
+                                        char[] passChars, List<String> filenames) {
+        // Carregar keystore
+        KeyStore ks;
+        try {
+            ks = KeyStoreUtil.loadKeyStore(username, passChars);
+        } catch (Exception e) {
+            System.err.println("Erro a carregar keystore de '" + username + "': " + e.getMessage());
+            return;
+        }
+    
+        // Chave privada (para decifrar)
+        java.security.PrivateKey mySk;
+        try {
+            mySk = KeyStoreUtil.getPrivateKey(ks, username, passChars);
+        } catch (Exception e) {
+            System.err.println("Erro a obter chave privada de '" + username + "': " + e.getMessage());
+            return;
+        }
+    
+        for (String fn : filenames) {
+            String cipherFile = fn + ".cifrado";
+            String keyFile    = fn + ".chave." + username;
+    
+            // 1. Receber os 2 ficheiros do servidor
+            List<String> toReceive = new ArrayList<>();
+            toReceive.add(cipherFile);
+            toReceive.add(keyFile);
+            receiveFiles(host, port, username, toReceive);
+    
+            // Verificar se foram recebidos
+            if (!new java.io.File(cipherFile).exists()) {
+                System.err.println("ERRO: não foi possível receber '" + cipherFile + "'. A saltar.");
+                continue;
+            }
+            if (!new java.io.File(keyFile).exists()) {
+                System.err.println("ERRO: não foi possível receber '" + keyFile + "'. A saltar.");
+                continue;
+            }
+    
+            // 2. Decifrar
+            try {
+                java.nio.file.Path cipher   = java.nio.file.Paths.get(cipherFile);
+                java.nio.file.Path keyPath  = java.nio.file.Paths.get(keyFile);
+                java.nio.file.Path outPlain = java.nio.file.Paths.get(fn + ".decifrado");
+                HybridCrypto.decryptFile(cipher, keyPath, mySk, outPlain);
+                System.out.println("OK: decifrado '" + cipherFile + "' -> '" + fn + ".decifrado'");
+            } catch (Exception e) {
+                System.err.println("ERRO a decifrar '" + cipherFile + "': " + e.getMessage());
+            }
+        }
+    }
+    
 
     private static String getParam(Map<String, List<String>> params, String flag) {
         List<String> values = params.get(flag);
