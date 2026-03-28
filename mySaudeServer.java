@@ -16,7 +16,6 @@ public class mySaudeServer {
         int port;
         port = Integer.parseInt(args[0]);
         System.out.println("mySaudeServer starting on port " + port + "...");
-
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             //abre o server estando este a "ouvir" o que o cliente vai mandar
             System.out.println("Server listening on port " + port);

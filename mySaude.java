@@ -102,8 +102,26 @@ public class mySaude {
                 System.exit(1);
             }
             char[] passChars = password.toCharArray();
-            List<String> files = signFiles(username, passChars, params.get("-ae"));
-            sendFiles(host,port,username,targetUser, files);
+            List<String> originalFiles = params.get("-ae");
+
+            // Assinar os ficheiros
+            signFiles(username, passChars, originalFiles);
+
+            // Construir lista para enviar com nomes corretos para o servidor
+            List<String> filesToSend = new ArrayList<>();
+            for (String f : originalFiles) {
+                // Copiar ficheiro original para .assinado
+                try {
+                    java.nio.file.Path src = java.nio.file.Paths.get(f);
+                    java.nio.file.Path dst = java.nio.file.Paths.get(f + ".assinado");
+                    java.nio.file.Files.copy(src, dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    filesToSend.add(f + ".assinado");
+                    filesToSend.add(f + ".assinatura." + username);
+                } catch (Exception e) {
+                    System.err.println("ERRO a preparar '" + f + "' para envio: " + e.getMessage());
+                }
+            }
+            sendFiles(host, port, username, targetUser, filesToSend);
             return;
         }
         // validar e receber 
@@ -143,7 +161,7 @@ public class mySaude {
         // Para cada ficheiro, pede também a assinatura ao servidor
         List<String> ficheirosParaReceber = new ArrayList<>();
         for (String f : files) {
-            ficheirosParaReceber.add(f);                              // ficheiro original
+            ficheirosParaReceber.add(f + ".assinado");                 // ficheiro assinado
             ficheirosParaReceber.add(f + ".assinatura." + targetUser); // assinatura
         }
 
@@ -151,8 +169,24 @@ public class mySaude {
         receiveFiles(host, port, username, ficheirosParaReceber);
 
         // Valida as assinaturas localmente
-        validateFiles(username, passChars, targetUser, files);
-        return;
+        for (String f : files) {
+            try {
+                java.io.File ficheiroAssinado = new java.io.File(f + ".assinado");
+                java.io.File assinaturaFile = new java.io.File(f + ".assinatura." + targetUser);
+                byte[] sigBytes = java.nio.file.Files.readAllBytes(assinaturaFile.toPath());
+                KeyStore ks = KeyStoreUtil.loadKeyStore(username, passChars);
+                java.security.cert.Certificate cert = ks.getCertificate(targetUser);
+                boolean valida = DigitalSignatureUtil.verifyFileSignature(ficheiroAssinado, sigBytes, cert);
+                if (valida) {
+                    System.out.println("OK: assinatura de '" + f + "' por '" + targetUser + "' é VÁLIDA.");
+                } else {
+                    System.out.println("INVÁLIDA: assinatura de '" + f + "' por '" + targetUser + "' é INVÁLIDA.");
+                }
+            } catch (Exception e) {
+                System.err.println("ERRO a verificar assinatura de '" + f + "': " + e.getMessage());
+            }
+        }
+        return;        
     }
 
 
@@ -801,7 +835,7 @@ private static void secureEnvelopeReceive(String host, int port, String username
                     System.exit(1);
                 }
                 for (String f : files) {
-                    File ficheiro = new File(f);
+                    File ficheiro = new File(f); 
                     if (!ficheiro.exists()) {
                         System.err.println("ERRO: ficheiro '" + f + "' não existe.");
                         continue;
