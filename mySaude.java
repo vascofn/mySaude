@@ -33,6 +33,8 @@ public class mySaude {
         boolean isValidate = params.containsKey("-v");
         boolean isSignandisSend = params.containsKey("-ae");
         boolean isValidateandisReceive = params.containsKey("-rv");
+        boolean isSecureEnvelope = params.containsKey("-ace");
+        boolean isReceiveDecryptVerify = params.containsKey("-rdv");
 
 
         String username = getParam(params, "-u");
@@ -152,6 +154,87 @@ public class mySaude {
     }
 
 
+        // -ace: assinar + cifrar + enviar (envelope seguro)
+        if (isSecureEnvelope) {
+            String password = getParam(params, "-p");
+            if (password == null) {
+                System.err.println("Error: -p (password da keystore) é obrigatório com -ace.");
+                System.exit(1);
+            }
+            String serverAddress = getParam(params, "-s");
+            if (serverAddress == null) {
+                System.err.println("Error: -s (address:port) é obrigatório com -ace.");
+                System.exit(1);
+            }
+            String[] serverParts = serverAddress.split(":");
+            if (serverParts.length != 2) {
+                System.err.println("Error: Server address must be in format address:port");
+                System.exit(1);
+            }
+            String host = serverParts[0];
+            int port;
+            try {
+                port = Integer.parseInt(serverParts[1]);
+            } catch (NumberFormatException e) {
+                System.err.println("Error: Invalid port number.");
+                System.exit(1);
+                return;
+            }
+            String targetUser = getParam(params, "-t");
+            if (targetUser == null) {
+                System.err.println("Error: -t (destinatário) é obrigatório com -ace.");
+                System.exit(1);
+            }
+            List<String> files = params.get("-ace");
+            if (files == null || files.isEmpty()) {
+                System.err.println("Error: tens de indicar ficheiros com -ace.");
+                System.exit(1);
+            }
+            char[] passChars = password.toCharArray();
+            secureEnvelopeSend(host, port, username, passChars, targetUser, files);
+            return;
+        }
+
+        // -rdv: receber + decifrar + verificar assinatura
+        if (isReceiveDecryptVerify) {
+            String password = getParam(params, "-p");
+            if (password == null) {
+                System.err.println("Error: -p (password da keystore) é obrigatório com -rdv.");
+                System.exit(1);
+            }
+            String serverAddress = getParam(params, "-s");
+            if (serverAddress == null) {
+                System.err.println("Error: -s (address:port) é obrigatório com -rdv.");
+                System.exit(1);
+            }
+            String[] serverParts = serverAddress.split(":");
+            if (serverParts.length != 2) {
+                System.err.println("Error: Server address must be in format address:port");
+                System.exit(1);
+            }
+            String host = serverParts[0];
+            int port;
+            try {
+                port = Integer.parseInt(serverParts[1]);
+            } catch (NumberFormatException e) {
+                System.err.println("Error: Invalid port number.");
+                System.exit(1);
+                return;
+            }
+            String signer = getParam(params, "-t");
+            if (signer == null) {
+                System.err.println("Error: -t (username de quem assinou) é obrigatório com -rdv.");
+                System.exit(1);
+            }
+            List<String> files = params.get("-rdv");
+            if (files == null || files.isEmpty()) {
+                System.err.println("Error: tens de indicar ficheiros com -rdv.");
+                System.exit(1);
+            }
+            char[] passChars = password.toCharArray();
+            secureEnvelopeReceive(host, port, username, passChars, signer, files);
+            return;
+        }
 
         // ---- CRIPTO (offline; NÃO usa servidor) ----
         if (isEncrypt || isDecrypt) {
@@ -364,6 +447,187 @@ public class mySaude {
             System.err.println("Error communicating with server: " + e.getMessage());
         }
     }
+
+
+    /**
+ * -ace: para cada ficheiro:
+ *   1. Assina → ficheiro.assinatura.username
+ *   2. Cifra  → ficheiro.envelope  +  ficheiro.chave.targetUser
+ *   3. Envia os 3 ficheiros para o servidor (pasta do targetUser)
+ */
+private static void secureEnvelopeSend(String host, int port, String username,
+                                        char[] passChars, String targetUser,
+                                        List<String> filenames) {
+    // Carregar keystore do remetente
+    KeyStore ks;
+    try {
+        ks = KeyStoreUtil.loadKeyStore(username, passChars);
+    } catch (Exception e) {
+        System.err.println("Erro a carregar keystore de '" + username + "': " + e.getMessage());
+        return;
+    }
+ 
+    // Chave privada do remetente (para assinar)
+    java.security.PrivateKey pk;
+    try {
+        pk = KeyStoreUtil.getPrivateKey(ks, username, passChars);
+    } catch (Exception e) {
+        System.err.println("Erro a obter chave privada de '" + username + "': " + e.getMessage());
+        return;
+    }
+ 
+    // Certificado do destinatário (para cifrar a chave AES)
+    java.security.cert.Certificate targetCert;
+    try {
+        targetCert = ks.getCertificate(targetUser);
+        if (targetCert == null) throw new Exception("Certificado não encontrado.");
+    } catch (Exception e) {
+        System.err.println("Erro: certificado de '" + targetUser + "' não existe na tua keystore. Importa-o com keytool.");
+        return;
+    }
+ 
+    // Processar cada ficheiro
+    List<String> filesToSend = new ArrayList<>();
+ 
+    for (String fn : filenames) {
+        java.nio.file.Path input = java.nio.file.Paths.get(fn);
+ 
+        if (!java.nio.file.Files.exists(input)) {
+            System.err.println("ERRO: ficheiro '" + fn + "' não existe. A saltar.");
+            continue;
+        }
+ 
+        String baseName = input.getFileName().toString();
+        String sigFile    = fn + ".assinatura." + username;
+        String envelopeFile = fn + ".envelope";
+        String keyFile    = fn + ".chave." + targetUser;
+ 
+        try {
+            // 1. Assinar o ficheiro original
+            byte[] assinatura = DigitalSignatureUtil.signFile(fn, pk);
+            java.nio.file.Files.write(java.nio.file.Path.of(sigFile), assinatura);
+            System.out.println("OK: assinado '" + fn + "' -> '" + sigFile + "'");
+ 
+            // 2. Cifrar o ficheiro original (cria .envelope e .chave.targetUser)
+            java.nio.file.Path outEnvelope = java.nio.file.Paths.get(envelopeFile);
+            java.nio.file.Path outKey      = java.nio.file.Paths.get(keyFile);
+            HybridCrypto.encryptFile(input, targetCert, outEnvelope, outKey);
+            System.out.println("OK: cifrado '" + fn + "' -> '" + envelopeFile + "', '" + keyFile + "'");
+ 
+            // 3. Adicionar os 3 ficheiros à lista de envio
+            filesToSend.add(envelopeFile);
+            filesToSend.add(sigFile);
+            filesToSend.add(keyFile);
+ 
+        } catch (Exception e) {
+            System.err.println("ERRO a processar '" + fn + "': " + e.getMessage());
+            // Limpar ficheiros parcialmente criados
+            new java.io.File(sigFile).delete();
+            new java.io.File(envelopeFile).delete();
+            new java.io.File(keyFile).delete();
+        }
+    }
+ 
+    if (filesToSend.isEmpty()) {
+        System.out.println("Nenhum ficheiro para enviar.");
+        return;
+    }
+ 
+    // 3. Enviar todos para o servidor
+    sendFiles(host, port, username, targetUser, filesToSend);
+}
+ 
+/**
+ * -rdv: para cada ficheiro:
+ *   1. Recebe do servidor: ficheiro.envelope, ficheiro.assinatura.signer, ficheiro.chave.username
+ *   2. Decifra o .envelope → ficheiro.decifrado
+ *   3. Valida a assinatura
+ */
+private static void secureEnvelopeReceive(String host, int port, String username,
+                                           char[] passChars, String signer,
+                                           List<String> filenames) {
+    // Carregar keystore do destinatário
+    KeyStore ks;
+    try {
+        ks = KeyStoreUtil.loadKeyStore(username, passChars);
+    } catch (Exception e) {
+        System.err.println("Erro a carregar keystore de '" + username + "': " + e.getMessage());
+        return;
+    }
+ 
+    // Chave privada do destinatário (para decifrar)
+    java.security.PrivateKey mySk;
+    try {
+        mySk = KeyStoreUtil.getPrivateKey(ks, username, passChars);
+    } catch (Exception e) {
+        System.err.println("Erro a obter chave privada de '" + username + "': " + e.getMessage());
+        return;
+    }
+ 
+    // Certificado de quem assinou (para verificar)
+    java.security.cert.Certificate signerCert;
+    try {
+        signerCert = ks.getCertificate(signer);
+        if (signerCert == null) throw new Exception("Certificado não encontrado.");
+    } catch (Exception e) {
+        System.err.println("Erro: certificado de '" + signer + "' não existe na tua keystore. Importa-o com keytool.");
+        return;
+    }
+ 
+    for (String fn : filenames) {
+        String envelopeFile = fn + ".envelope";
+        String sigFile      = fn + ".assinatura." + signer;
+        String keyFile      = fn + ".chave." + username;
+ 
+        // 1. Receber os 3 ficheiros do servidor
+        List<String> toReceive = new ArrayList<>();
+        toReceive.add(envelopeFile);
+        toReceive.add(sigFile);
+        toReceive.add(keyFile);
+        receiveFiles(host, port, username, toReceive);
+ 
+        // Verificar se foram todos recebidos
+        if (!new java.io.File(envelopeFile).exists()) {
+            System.err.println("ERRO: não foi possível receber '" + envelopeFile + "'. A saltar.");
+            continue;
+        }
+        if (!new java.io.File(keyFile).exists()) {
+            System.err.println("ERRO: não foi possível receber '" + keyFile + "'. A saltar.");
+            continue;
+        }
+        if (!new java.io.File(sigFile).exists()) {
+            System.err.println("ERRO: não foi possível receber '" + sigFile + "'. A saltar.");
+            continue;
+        }
+ 
+        // 2. Decifrar o envelope
+        try {
+            java.nio.file.Path cipher  = java.nio.file.Paths.get(envelopeFile);
+            java.nio.file.Path keyPath = java.nio.file.Paths.get(keyFile);
+            java.nio.file.Path outPlain = java.nio.file.Paths.get(fn + ".decifrado");
+            HybridCrypto.decryptFile(cipher, keyPath, mySk, outPlain);
+            System.out.println("OK: decifrado '" + envelopeFile + "' -> '" + fn + ".decifrado'");
+        } catch (Exception e) {
+            System.err.println("ERRO a decifrar '" + envelopeFile + "': " + e.getMessage());
+            continue;
+        }
+ 
+        // 3. Verificar assinatura (sobre o ficheiro ORIGINAL, i.e., o decifrado)
+        try {
+            java.io.File decifrado = new java.io.File(fn + ".decifrado");
+            byte[] sigBytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(sigFile));
+            boolean valida = DigitalSignatureUtil.verifyFileSignature(decifrado, sigBytes, signerCert);
+            if (valida) {
+                System.out.println("OK: assinatura de '" + fn + "' por '" + signer + "' é VÁLIDA.");
+            } else {
+                System.out.println("INVÁLIDA: assinatura de '" + fn + "' por '" + signer + "' é INVÁLIDA.");
+            }
+        } catch (Exception e) {
+            System.err.println("ERRO a verificar assinatura de '" + fn + "': " + e.getMessage());
+        }
+    }
+}
+
 
     private static void receiveFiles(String host, int port, String username, List<String> filenames) {
         for (String filename : filenames) {
