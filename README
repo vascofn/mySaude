@@ -1,8 +1,196 @@
-compilem antes de correr os ficheiros JAVA,
-    - javac nomeficcheiro.java 
+================================================================
+                        mySaude - README
+================================================================
 
-o server foi so chat dps temos de ver o que vale a pena tar la e o que nao 
-mas e so uma base pra comecar a fazer a criptografia e dps ve se isso
+----------------------------------------------------------------
+COMPILAÇÃO
+----------------------------------------------------------------
+Dentro da pasta do projeto, correr:
+
+    javac *.java
 
 
-A passe do Rodrigo.Keystore é 123456
+----------------------------------------------------------------
+ESTRUTURA DE PASTAS NECESSÁRIA
+----------------------------------------------------------------
+Antes de correr o servidor, é necessário criar a pasta
+serverFiles com uma subpasta por utilizador:
+
+    mkdir -p serverFiles/meireles
+    mkdir -p serverFiles/silva
+
+O projeto já inclui as keystores dos utilizadores meireles e
+silva na pasta keys/.
+
+
+----------------------------------------------------------------
+KEYSTORES E CERTIFICADOS (já incluídos no projeto)
+----------------------------------------------------------------
+As keystores já estão criadas em keys/ e os certificados já
+estão importados cruzadamente. Caso seja necessário recriar
+de raiz, os comandos são os seguintes:
+
+    # Criar keystores
+    keytool -genkeypair -alias meireles -keyalg RSA -keysize 2048 \
+      -keystore keys/keystore.meireles -storepass passMeireles \
+      -dname "CN=meireles"
+
+    keytool -genkeypair -alias silva -keyalg RSA -keysize 2048 \
+      -keystore keys/keystore.silva -storepass passSilva \
+      -dname "CN=silva"
+
+    # Exportar certificados
+    keytool -exportcert -alias meireles -keystore keys/keystore.meireles \
+      -storepass passMeireles -file keys/meireles.cer
+
+    keytool -exportcert -alias silva -keystore keys/keystore.silva \
+      -storepass passSilva -file keys/silva.cer
+
+    # Importar certificados cruzados
+    keytool -importcert -noprompt -alias silva -file keys/silva.cer \
+      -keystore keys/keystore.meireles -storepass passMeireles
+
+    keytool -importcert -noprompt -alias meireles -file keys/meireles.cer \
+      -keystore keys/keystore.silva -storepass passSilva
+
+
+----------------------------------------------------------------
+EXECUTAR O SERVIDOR
+----------------------------------------------------------------
+    java mySaudeServer <porto>
+
+Exemplo:
+    java mySaudeServer 23456
+
+
+----------------------------------------------------------------
+COMANDOS DO CLIENTE
+----------------------------------------------------------------
+Nota: substituir <endereço:porto> pelo IP e porto do servidor.
+
+1. Enviar ficheiros para o servidor:
+    java mySaude -s <endereço:porto> -u <username> -e <ficheiros> -t <destinatario>
+
+2. Receber ficheiros do servidor:
+    java mySaude -s <endereço:porto> -u <username> -r <ficheiros>
+
+3. Cifrar ficheiros (offline):
+    java mySaude -u <username> -p <password> -c <ficheiros> -t <destinatario>
+
+4. Decifrar ficheiros (offline):
+    java mySaude -u <username> -p <password> -d <ficheiros>
+
+5. Cifrar e enviar para o servidor:
+    java mySaude -s <endereço:porto> -u <username> -p <password> -ce <ficheiros> -t <destinatario>
+
+6. Receber e decifrar do servidor:
+    java mySaude -s <endereço:porto> -u <username> -p <password> -rd <ficheiros>
+
+7. Assinar ficheiros (offline):
+    java mySaude -u <username> -p <password> -a <ficheiros>
+
+8. Verificar assinatura (offline):
+    java mySaude -u <username> -p <password> -v <ficheiros> -t <username_de_quem_assinou>
+
+9. Assinar e enviar para o servidor:
+    java mySaude -s <endereço:porto> -u <username> -p <password> -ae <ficheiros> -t <destinatario>
+
+10. Receber e verificar assinatura do servidor:
+    java mySaude -s <endereço:porto> -u <username> -p <password> -rv <ficheiros> -t <username_de_quem_assinou>
+
+11. Envelope seguro - assinar, cifrar e enviar:
+    java mySaude -s <endereço:porto> -u <username> -p <password> -ace <ficheiros> -t <destinatario>
+
+12. Envelope seguro - receber, decifrar e verificar assinatura:
+    java mySaude -s <endereço:porto> -u <username> -p <password> -rdv <ficheiros> -t <username_de_quem_assinou>
+
+
+----------------------------------------------------------------
+EXEMPLO COMPLETO (meireles envia para silva)
+----------------------------------------------------------------
+# Servidor
+java mySaudeServer 23456
+
+# Envelope seguro
+java mySaude -s 10.101.148.218:23456 -u meireles -p passMeireles -ace ficheiro.txt -t silva
+java mySaude -s 10.101.148.218:23456 -u silva -p passSilva -rdv ficheiro.txt -t meireles
+
+
+----------------------------------------------------------------
+SEQUÊNCIA DE TESTES COMPLETA (3 máquinas)
+----------------------------------------------------------------
+Nota: substituir IP_SERVIDOR pelo IP da máquina do servidor.
+Assumir que existe um ficheiro "ficheiro.txt" na pasta do
+projeto em cada máquina cliente.
+
+=== PC SERVIDOR ===
+java mySaudeServer 23456
+
+
+=== PC MEIRELES ===
+
+# 1. Enviar ficheiros para o servidor (para silva)
+java mySaude -s IP_SERVIDOR:23456 -u meireles -p passMeireles -e ficheiro.txt ficheiro2.txt -t silva
+
+# 2. Cifrar ficheiros para silva (offline)
+java mySaude -u meireles -p passMeireles -c ficheiro.txt ficheiro2.txt -t silva
+rm -f ficheiro.txt.cifrado ficheiro.txt.chave.silva ficheiro2.txt.cifrado ficheiro2.txt.chave.silva
+
+# 3. Cifrar e enviar para o servidor (para silva)
+java mySaude -s IP_SERVIDOR:23456 -u meireles -p passMeireles -ce ficheiro.txt ficheiro2.txt -t silva
+rm -f ficheiro.txt.cifrado ficheiro.txt.chave.silva ficheiro2.txt.cifrado ficheiro2.txt.chave.silva
+
+# 4. Assinar ficheiros (offline)
+java mySaude -u meireles -p passMeireles -a ficheiro.txt ficheiro2.txt
+rm -f ficheiro.txt.assinatura.meireles ficheiro2.txt.assinatura.meireles
+
+# 5. Assinar e enviar para o servidor (para silva)
+java mySaude -s IP_SERVIDOR:23456 -u meireles -p passMeireles -ae ficheiro.txt ficheiro2.txt -t silva
+rm -f ficheiro.txt.assinado ficheiro.txt.assinatura.meireles ficheiro2.txt.assinado ficheiro2.txt.assinatura.meireles
+
+# 6. Envelope seguro - assinar, cifrar e enviar (para silva)
+java mySaude -s IP_SERVIDOR:23456 -u meireles -p passMeireles -ace ficheiro.txt ficheiro2.txt -t silva
+rm -f ficheiro.txt.envelope ficheiro.txt.assinatura.meireles ficheiro.txt.chave.silva
+rm -f ficheiro2.txt.envelope ficheiro2.txt.assinatura.meireles ficheiro2.txt.chave.silva
+
+
+=== PC SILVA ===
+
+# 1. Receber ficheiros do servidor
+java mySaude -s IP_SERVIDOR:23456 -u silva -p passSilva -r ficheiro.txt ficheiro2.txt
+rm -f ficheiro.txt ficheiro2.txt
+
+# 2. Decifrar ficheiros (offline, após receber .cifrado e .chave.silva do meireles)
+java mySaude -u silva -p passSilva -d ficheiro.txt.cifrado ficheiro2.txt.cifrado
+rm -f ficheiro.txt.cifrado ficheiro.txt.chave.silva ficheiro.txt.decifrado
+rm -f ficheiro2.txt.cifrado ficheiro2.txt.chave.silva ficheiro2.txt.decifrado
+
+# 3. Receber e decifrar do servidor
+java mySaude -s IP_SERVIDOR:23456 -u silva -p passSilva -rd ficheiro.txt ficheiro2.txt
+rm -f ficheiro.txt.cifrado ficheiro.txt.chave.silva ficheiro.txt.decifrado
+rm -f ficheiro2.txt.cifrado ficheiro2.txt.chave.silva ficheiro2.txt.decifrado
+
+# 4. Verificar assinatura (offline, após receber .assinatura.meireles do meireles)
+java mySaude -u silva -p passSilva -v ficheiro.txt ficheiro2.txt -t meireles
+rm -f ficheiro.txt.assinatura.meireles ficheiro2.txt.assinatura.meireles
+
+# 5. Receber e verificar assinatura do servidor
+java mySaude -s IP_SERVIDOR:23456 -u silva -p passSilva -rv ficheiro.txt ficheiro2.txt -t meireles
+rm -f ficheiro.txt.assinado ficheiro.txt.assinatura.meireles
+rm -f ficheiro2.txt.assinado ficheiro2.txt.assinatura.meireles
+
+# 6. Envelope seguro - receber, decifrar e verificar assinatura
+java mySaude -s IP_SERVIDOR:23456 -u silva -p passSilva -rdv ficheiro.txt ficheiro2.txt -t meireles
+rm -f ficheiro.txt.envelope ficheiro.txt.assinatura.meireles ficheiro.txt.chave.silva ficheiro.txt.decifrado
+rm -f ficheiro2.txt.envelope ficheiro2.txt.assinatura.meireles ficheiro2.txt.chave.silva ficheiro2.txt.decifrado
+
+
+----------------------------------------------------------------
+ALGORITMOS UTILIZADOS
+----------------------------------------------------------------
+- Criptografia assimétrica: RSA 2048 bits
+- Criptografia simétrica:   AES 128 bits (modo GCM)
+- Assinatura digital:       SHA256withRSA
+- Keystores:                formato PKCS12
+
+================================================================
