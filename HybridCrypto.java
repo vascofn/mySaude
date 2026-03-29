@@ -41,6 +41,13 @@ public final class HybridCrypto {
 
     private HybridCrypto() {}
 
+    /**
+     * Cria e inicializa um Cipher RSA para encriptação de chave usando OAEP.
+     * Tenta SHA-256 e recua para SHA-1 se não suportado.
+     *
+     * @param pk chave pública do destinatário
+     * @return Cipher configurado para encriptação
+     */
     private static Cipher rsaCipherEncrypt(PublicKey pk) throws Exception {
         try {
             Cipher c = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
@@ -53,6 +60,13 @@ public final class HybridCrypto {
         }
     }
 
+    /**
+     * Cria e inicializa um Cipher RSA para desencriptação de chave usando OAEP.
+     * Tenta SHA-256 e recua para SHA-1 se não suportado.
+     *
+     * @param sk chave privada do destinatário
+     * @return Cipher configurado para desencriptação
+     */
     private static Cipher rsaCipherDecrypt(PrivateKey sk) throws Exception {
         try {
             Cipher c = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
@@ -65,26 +79,55 @@ public final class HybridCrypto {
         }
     }
 
+    /**
+     * Gera uma chave AES-128 segura.
+     *
+     * @return chave AES recém-gerada
+     */
     private static SecretKey generateAesKey() throws Exception {
         KeyGenerator kg = KeyGenerator.getInstance("AES");
         kg.init(AES_KEY_BITS);
         return kg.generateKey();
     }
 
+    /**
+     * Gera um IV aleatório de comprimento fixo para AES/GCM.
+     *
+     * @return vetor de inicialização aleatório
+     */
     private static byte[] randomIv() {
         byte[] iv = new byte[IV_LEN];
         new SecureRandom().nextBytes(iv);
         return iv;
     }
 
+    /**
+     * Retorna o caminho padrão para output de ficheiro cifrado.
+     *
+     * @param input ficheiro original
+     * @return ficheiro com extensão ".cifrado"
+     */
     public static Path cipherFileName(Path input) {
         return input.resolveSibling(input.getFileName().toString() + ".cifrado");
     }
 
+    /**
+     * Retorna o caminho padrão para output de chave cifrada.
+     *
+     * @param input ficheiro original
+     * @param recipientUsername nome do destinatário
+     * @return ficheiro com extensão ".chave.<destinatário>"
+     */
     public static Path keyFileName(Path input, String recipientUsername) {
         return input.resolveSibling(input.getFileName().toString() + ".chave." + recipientUsername);
     }
 
+    /**
+     * Deriva a base do nome do ficheiro a partir do ficheiro cifrado.
+     *
+     * @param cipherFile ficheiro ".cifrado"
+     * @return caminho base sem a extensão ".cifrado"
+     */
     private static Path baseFromCipher(Path cipherFile) {
         String name = cipherFile.getFileName().toString();
         if (name.endsWith(".cifrado")) {

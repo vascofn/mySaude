@@ -10,8 +10,25 @@ import java.util.*;
 //Alterei umas cenas para que dê para criptografar offline (-c e -d) e corrigi o protocolo SEND para bater com o do Server
 
 // classe que age como cliente do servidor mySaude
+/**
+ * Aplicação cliente principal para operações de criptografia, assinatura, envio e receção.
+ *
+ * Formato de invocação suportado:
+ * -c/-d = cifrar/decifrar localmente
+ * -e/-r = enviar/receber via servidor
+ * -a/-v = assinar/validar assinaturas
+ * -ace/-rdv/-ce/-rd = operações combinadas de envelope seguro e/ou comunicação com servidor
+ *
+ * @param args argumentos de linha de comando
+ */
 public class mySaude {
 
+    /**
+     * Entry point da aplicação.
+     * Faz parsing de argumentos e despacha para o modo de operação correto.
+     *
+     * @param args argumentos de linha de comando
+     */
     public static void main(String[] args) {
         if (args.length < 2) {
             printUsage();
@@ -431,6 +448,14 @@ public class mySaude {
 
     // ---------------- CRIPTO: -c / -d (offline) ----------------
 
+    /**
+     * Cifra uma lista de ficheiros localmente usando o certificado do destinatário na keystore do remetente.
+     *
+     * @param username nome de utilizador da keystore do remetente
+     * @param ksPass password da keystore
+     * @param targetUser destinatário cujo certificado está na keystore do remetente
+     * @param filenames lista de ficheiros a cifrar
+     */
     private static void encryptFilesOffline(String username, char[] ksPass, String targetUser, List<String> filenames) {
         KeyStore ks;
         try {
@@ -463,6 +488,13 @@ public class mySaude {
         }
     }
 
+    /**
+     * Decifra uma lista de ficheiros localmente usando a chave privada do utilizador.
+     *
+     * @param username nome de utilizador da keystore
+     * @param ksPass password da keystore
+     * @param cipherFiles lista de ficheiros cifrados a decifrar
+     */
     private static void decryptFilesOffline(String username, char[] ksPass, List<String> cipherFiles) {
         KeyStore ks;
         try {
@@ -502,6 +534,15 @@ public class mySaude {
 
     // ---------------- REDE: -e / -r ----------------
 
+    /**
+     * Envia ficheiros para servidor remoto usando o protocolo SEND.
+     *
+     * @param host endereço do servidor
+     * @param port porta do servidor
+     * @param username remetente
+     * @param targetUser destinatário no servidor
+     * @param filenames ficheiros a enviar
+     */
     private static void sendFiles(String host, int port, String username,String targetUser, List<String> filenames) {
         List<File> validFiles = new ArrayList<>();
         for (String filename : filenames) {
@@ -562,11 +603,20 @@ public class mySaude {
     }
 
 
-    /**
- * -ace: para cada ficheiro:
- *   1. Assina → ficheiro.assinatura.username
- *   2. Cifra  → ficheiro.envelope  +  ficheiro.chave.targetUser
- *   3. Envia os 3 ficheiros para o servidor (pasta do targetUser)
+/**
+ * Envia ficheiros em envelope seguro (assinatura + cifragem) para o servidor.
+ *
+ * Passos:
+ * 1) assina o ficheiro original
+ * 2) cifra o ficheiro (gera .envelope e .chave)
+ * 3) envia os 3 ficheiros ao servidor
+ *
+ * @param host endereço do servidor
+ * @param port porta do servidor
+ * @param username remetente
+ * @param passChars password da keystore do remetente
+ * @param targetUser destinatário
+ * @param filenames ficheiros originais a processar
  */
 private static void secureEnvelopeSend(String host, int port, String username,
                                         char[] passChars, String targetUser,
@@ -650,11 +700,16 @@ private static void secureEnvelopeSend(String host, int port, String username,
     sendFiles(host, port, username, targetUser, filesToSend);
 }
  
+
 /**
- * -rdv: para cada ficheiro:
- *   1. Recebe do servidor: ficheiro.envelope, ficheiro.assinatura.signer, ficheiro.chave.username
- *   2. Decifra o .envelope → ficheiro.decifrado
- *   3. Valida a assinatura
+ * Recebe e processa envelope seguro do servidor (recebe, decifra e verifica assinatura).
+ *
+ * @param host endereço do servidor
+ * @param port porta do servidor
+ * @param username destinatário
+ * @param passChars password da keystore do destinatário
+ * @param signer nome do utilizador que assinou os ficheiros
+ * @param filenames nomes base dos ficheiros a receber e processar
  */
 private static void secureEnvelopeReceive(String host, int port, String username,
                                            char[] passChars, String signer,
@@ -742,6 +797,14 @@ private static void secureEnvelopeReceive(String host, int port, String username
 }
 
 
+    /**
+     * Recebe ficheiros do servidor usando o protocolo RECEIVE.
+     *
+     * @param host endereço do servidor
+     * @param port porta do servidor
+     * @param username nome do utilizador (pasta no servidor)
+     * @param filenames ficheiros a pedir
+     */
     private static void receiveFiles(String host, int port, String username, List<String> filenames) {
         for (String filename : filenames) {
             File destFile = new File(filename);
@@ -790,6 +853,14 @@ private static void secureEnvelopeReceive(String host, int port, String username
     }
         // ---------------- ASSINATURA DIGITAL: -a ----------------
 
+        /**
+         * Assina digitalmente cada ficheiro com a chave privada do usuário.
+         *
+         * @param username dono da keystore e chave privada
+         * @param passChars password da keystore
+         * @param files lista de ficheiros a assinar
+         * @return lista de ficheiros originais e assinaturas geradas
+         */
         private static List<String> signFiles(String username, char[] passChars, List<String> files) {
             List<String> lista_files = new ArrayList<>();
             if (files == null || files.isEmpty()) {
@@ -822,6 +893,14 @@ private static void secureEnvelopeReceive(String host, int port, String username
 
         // ---------------- VALIDAR ASSINATURA: -v ----------------
 
+        /**
+         * Valida assinaturas de ficheiros usando o certificado do utilizador especificado.
+         *
+         * @param username dono da keystore que contém o certificado do signatário
+         * @param passChars password da keystore
+         * @param targetUser signatário cujo certificado é usado para validação
+         * @param files lista de ficheiros originais a validar
+         */
         private static void validateFiles(String username, char[] passChars, String targetUser, List<String> files) {
             if (files == null || files.isEmpty()) {
                 System.err.println("Error: -v não deste nenhum ficheiro para verificar a assinatura.");
@@ -861,6 +940,12 @@ private static void secureEnvelopeReceive(String host, int port, String username
         }
     // ─── Argument parsing helpers ───────────────────────────────────────────────
 
+    /**
+     * Interpreta os argumentos de linha de comando num mapa de sinalizadores -> lista de valores.
+     *
+     * @param args argumentos de linha de comando
+     * @return mapa com opções e valores correspondentes ou null em erro
+     */
     private static Map<String, List<String>> parseArgs(String[] args) {
         Map<String, List<String>> params = new LinkedHashMap<>();
         String currentFlag = null;
@@ -885,6 +970,16 @@ private static void secureEnvelopeReceive(String host, int port, String username
      * -ce: para cada ficheiro:
      *   1. Cifra → ficheiro.cifrado + ficheiro.chave.targetUser
      *   2. Envia os 2 ficheiros para o servidor (pasta do targetUser)
+     */
+    /**
+     * Cifra ficheiros e envia-os ao servidor (modo -ce).
+     *
+     * @param host endereço do servidor
+     * @param port porta do servidor
+     * @param username remetente
+     * @param passChars password da keystore do remetente
+     * @param targetUser destinatário
+     * @param filenames ficheiros a cifrar e enviar
      */
     private static void encryptAndSend(String host, int port, String username,
                                         char[] passChars, String targetUser,
@@ -953,6 +1048,15 @@ private static void secureEnvelopeReceive(String host, int port, String username
      *   1. Recebe do servidor: ficheiro.cifrado + ficheiro.chave.username
      *   2. Decifra o .cifrado → ficheiro.decifrado
      */
+    /**
+     * Recebe ficheiros cifrados do servidor e decifra localmente (modo -rd).
+     *
+     * @param host endereço do servidor
+     * @param port porta do servidor
+     * @param username destinatário
+     * @param passChars password da keystore do destinatário
+     * @param filenames nomes base de ficheiros para receber e decifrar
+     */
     private static void receiveAndDecrypt(String host, int port, String username,
                                         char[] passChars, List<String> filenames) {
         // Carregar keystore
@@ -1007,12 +1111,22 @@ private static void secureEnvelopeReceive(String host, int port, String username
     }
     
 
+    /**
+     * Obtém o primeiro valor de um sinalizador no mapa de argumentos.
+     *
+     * @param params mapa de sinalizadores para valores
+     * @param flag sinalizador a pesquisar
+     * @return primeiro valor ou null se não existir
+     */
     private static String getParam(Map<String, List<String>> params, String flag) {
         List<String> values = params.get(flag);
         if (values == null || values.isEmpty()) return null;
         return values.get(0);
     }
 
+    /**
+     * Impressão de ajuda de utilização no formato de linha de comando.
+     */
     private static void printUsage() {
         System.out.println("Usage:");
         System.out.println("  Cifrar:         mySaude -u username -p password -c f1 [f2 ...] -t destinatario");
