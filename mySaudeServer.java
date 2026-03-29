@@ -1,24 +1,21 @@
 import java.io.*;
 import java.net.*;
-import java.nio.file.*;
 
-
-// classe que liga o servidor para dps o cliente conseguir mandar/receber ficheiros apartir deste
-// comando para inicializar : java mySaudeServer <nº do porto q quiserem>
+// comando para inicializar : java mySaudeServer <porto>
 public class mySaudeServer {
 
     public static void main(String[] args) {
-        //explica o comando
         if (args.length != 1) {
             System.err.println("Usage: mySaudeServer <port>");
             System.exit(1);
         }
-        int port;
-        port = Integer.parseInt(args[0]);
+
+        int port = Integer.parseInt(args[0]);
         System.out.println("mySaudeServer starting on port " + port + "...");
+
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            //abre o server estando este a "ouvir" o que o cliente vai mandar
             System.out.println("Server listening on port " + port);
+
             while (true) {
                 Socket clientSocket = serverSocket.accept();
                 System.out.println("New connection from " + clientSocket.getInetAddress());
@@ -46,7 +43,6 @@ class ClientHandler implements Runnable {
             DataInputStream in = new DataInputStream(socket.getInputStream());
             DataOutputStream out = new DataOutputStream(socket.getOutputStream())
         ) {
-            // le send e recevies 
             String command = in.readUTF();
 
             if (command.equals("SEND")) {
@@ -55,6 +51,7 @@ class ClientHandler implements Runnable {
                 handleReceive(in, out);
             } else {
                 out.writeUTF("ERROR: Unknown command");
+                out.flush();
             }
 
         } catch (IOException e) {
@@ -63,7 +60,7 @@ class ClientHandler implements Runnable {
             try { socket.close(); } catch (IOException ignored) {}
         }
     }
-    // se for send é usado isto
+
     private void handleSend(DataInputStream in, DataOutputStream out) throws IOException {
         String targetUser = in.readUTF();
         File userDir = new File("serverFiles" + File.separator + targetUser);
@@ -73,8 +70,11 @@ class ClientHandler implements Runnable {
         for (int i = 0; i < fileCount; i++) {
             String filename = in.readUTF();
 
-            if (!userDir.exists()) {
+            // Diretoria do utilizador tem de existir
+            if (!userDir.exists() || !userDir.isDirectory()) {
                 out.writeUTF("ERROR: User directory does not exist for user '" + targetUser + "'");
+                out.flush();
+
                 long fileSize = in.readLong();
                 in.skipNBytes(fileSize);
                 continue;
@@ -82,18 +82,30 @@ class ClientHandler implements Runnable {
 
             File destFile = new File(userDir, filename);
 
-            // ve se o ficehiro ja existe
+            // Já existe o ficheiro com o mesmo nome
             if (destFile.exists()) {
                 out.writeUTF("ERROR: File '" + filename + "' already exists on server for user '" + targetUser + "'");
+                out.flush();
+
                 long fileSize = in.readLong();
                 in.skipNBytes(fileSize);
                 continue;
             }
 
-            // All pre-checks passed
-            out.writeUTF("OK");
+            if (violatesUniqueness(userDir, filename)) {
+                out.writeUTF("ERROR: A variant of this file already exists on server (pdf/cifrado/assinado/envelope).");
+                out.flush();
 
-            // Receive file
+                long fileSize = in.readLong();
+                in.skipNBytes(fileSize);
+                continue;
+            }
+
+            // Pre-check OK
+            out.writeUTF("OK");
+            out.flush();
+
+            // Receber o ficheiro
             long fileSize = in.readLong();
             byte[] buffer = new byte[8192];
             long remaining = fileSize;
@@ -108,11 +120,13 @@ class ClientHandler implements Runnable {
                 }
             } catch (IOException e) {
                 out.writeUTF("ERROR: Failed to write file on server: " + e.getMessage());
+                out.flush();
                 continue;
             }
 
             System.out.println("Received file '" + filename + "' for user '" + targetUser + "'");
             out.writeUTF("OK");
+            out.flush();
         }
     }
 
@@ -138,21 +152,23 @@ class ClientHandler implements Runnable {
         for (int i = 0; i < fileCount; i++) {
             String filename = in.readUTF();
 
-            if (!userDir.exists()) {
+            if (!userDir.exists() || !userDir.isDirectory()) {
                 out.writeUTF("ERROR: User directory does not exist for user '" + username + "'");
+                out.flush();
                 continue;
             }
 
             File srcFile = new File(userDir, filename);
 
-            if (!srcFile.exists()) {
+            if (!srcFile.exists() || !srcFile.isFile()) {
                 out.writeUTF("ERROR: File '" + filename + "' does not exist on server for user '" + username + "'");
+                out.flush();
                 continue;
             }
 
             out.writeUTF("OK");
+            out.flush();
 
-            // Send file
             long fileSize = srcFile.length();
             out.writeLong(fileSize);
 
@@ -167,5 +183,35 @@ class ClientHandler implements Runnable {
             out.flush();
             System.out.println("Sent file '" + filename + "' to user '" + username + "'");
         }
+    }
+
+    private static String baseNameForUniqueness(String filename) {
+        if (filename.endsWith(".cifrado"))  return filename.substring(0, filename.length() - ".cifrado".length());
+        if (filename.endsWith(".assinado")) return filename.substring(0, filename.length() - ".assinado".length());
+        if (filename.endsWith(".envelope")) return filename.substring(0, filename.length() - ".envelope".length());
+        return filename; 
+    }
+
+    /**
+     * Devolve true se já existir no diretório do utilizador alguma variante do mesmo "base"
+     * (base, base.cifrado, base.assinado, base.envelope), EXCLUINDO o próprio incomingName.
+     * O caso "incomingName já existe" é tratado antes (destFile.exists()).
+     */
+    private static boolean violatesUniqueness(File userDir, String incomingName) {
+        String base = baseNameForUniqueness(incomingName);
+
+        String[] variants = new String[] {
+            base,
+            base + ".cifrado",
+            base + ".assinado",
+            base + ".envelope"
+        };
+
+        for (String v : variants) {
+            if (v.equals(incomingName)) continue; 
+            File f = new File(userDir, v);
+            if (f.exists()) return true;
+        }
+        return false;
     }
 }
