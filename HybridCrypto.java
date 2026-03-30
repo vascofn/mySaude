@@ -149,19 +149,19 @@ public final class HybridCrypto {
             throw new IllegalArgumentException("Ficheiro não existe: " + input);
         }
 
-        SecretKey aesKey = generateAesKey();
+        SecretKey aesKey = generateAesKey(); //gera a chave aes 
         byte[] iv = randomIv();
 
         Cipher aesCipher = Cipher.getInstance(AES_TRANSFORMATION);
-        aesCipher.init(Cipher.ENCRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_BITS, iv));
+        aesCipher.init(Cipher.ENCRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_BITS, iv)); // configura a cifra tendo em conta a cahve
 
         PublicKey recipientPk = recipientCert.getPublicKey();
         Cipher rsaEnc = rsaCipherEncrypt(recipientPk);
-        byte[] wrappedKey = rsaEnc.doFinal(aesKey.getEncoded());
+        byte[] wrappedKey = rsaEnc.doFinal(aesKey.getEncoded()); //cifrar a cahve aes com o rsa
 
         try (DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(outKey.toFile())))) {
             dos.writeInt(wrappedKey.length);
-            dos.write(wrappedKey);
+            dos.write(wrappedKey);// escreve a chave AES encriprtada com RSA
         }
 
         try (FileOutputStream fos = new FileOutputStream(outCipher.toFile());
@@ -177,7 +177,7 @@ public final class HybridCrypto {
                 byte[] buffer = new byte[64 * 1024];
                 int read;
                 while ((read = bis.read(buffer)) != -1) {
-                    cos.write(buffer, 0, read);
+                    cos.write(buffer, 0, read);// cifragem com a chave aes
                 }
             }
         }

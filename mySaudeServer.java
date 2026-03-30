@@ -62,7 +62,7 @@ class ClientHandler implements Runnable {
     }
 
     private void handleSend(DataInputStream in, DataOutputStream out) throws IOException {
-        String targetUser = in.readUTF();
+        String targetUser = in.readUTF(); //usamos isto pois automaticamente ele manda o size da string popando memoria
         File userDir = new File("serverFiles" + File.separator + targetUser);
 
         int fileCount = in.readInt();
