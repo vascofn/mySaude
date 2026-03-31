@@ -21,7 +21,6 @@ import java.security.cert.Certificate;
 //Esta parte é a cifra hibrida que é usada para cifrar os ficheiros antes de serem enviados
 // e depois decifrar os ficheiros recebidos, usando AES para os dados e RSA para a chave AES.
 
-//AI reparou alguns erros que tinha nas classes não me garanto a 100% que esteja bangers
 
 /**
  * Cifra híbrida:
