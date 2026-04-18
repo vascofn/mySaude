@@ -1,14 +1,50 @@
 import java.io.*;
 import java.net.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Scanner;
+import javax.crypto.Mac;
+import java.util.Base64;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 
 // comando para inicializar : java mySaudeServer <porto>
 public class mySaudeServer {
 
     public static void main(String[] args) {
+
         if (args.length != 1) {
             System.err.println("Usage: mySaudeServer <port>");
             System.exit(1);
         }
+
+        // // inicio autenticação do servidor usando MAC
+        // try{
+        //     Scanner scanner = new Scanner(System.in);
+        //     System.out.print("Insert MAC password for server operations: ");
+        //     String macPassword = scanner.nextLine();
+
+        //     byte[] pass = macPassword.getBytes();
+        //     SecretKey key = new SecretKeySpec(pass, 0, pass.length, "HmacSHA256");
+
+        //     String macCalculado = calcularMAC("users", key);
+
+        //     String macArmazenado = Files.readString(Paths.get("mySaude.mac"));
+                
+        //     if (!macCalculado.equals(macArmazenado)) {
+        //         System.out.println("ERRO: Ficheiro de passwords foi modificado!");
+        //         System.out.println("MAC esperado: " + macArmazenado);
+        //         System.out.println("MAC calculado: " + macCalculado);
+        //         System.exit(1); 
+        //     }
+            
+        //     System.out.println("✓ Verificação de integridade OK");
+        //     // fim autenticação do servidor usando MAC
+        // } catch (Exception e) {
+        //     System.err.println("Erro durante autenticação do servidor: " + e.getMessage());
+        //     System.exit(1);
+        // }
+
 
         int port = Integer.parseInt(args[0]);
         System.out.println("mySaudeServer starting on port " + port + "...");
@@ -26,6 +62,19 @@ public class mySaudeServer {
             System.err.println("Server error: " + e.getMessage());
             System.exit(1);
         }
+    }
+
+
+    private static String calcularMAC(String caminhoFicheiro, SecretKey key) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(key);
+        
+        // Ler o ficheiro e atualizar o MAC
+        byte[] fileBytes = Files.readAllBytes(Paths.get(caminhoFicheiro));
+        byte[] macBytes = mac.doFinal(fileBytes);
+        
+        // Codificar em base64
+        return Base64.getEncoder().encodeToString(macBytes);
     }
 }
 
