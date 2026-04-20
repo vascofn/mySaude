@@ -18,32 +18,34 @@ public class mySaudeServer {
             System.exit(1);
         }
 
-        // // inicio autenticação do servidor usando MAC
-        // try{
-        //     Scanner scanner = new Scanner(System.in);
-        //     System.out.print("Insert MAC password for server operations: ");
-        //     String macPassword = scanner.nextLine();
+        // inicio autenticação do servidor usando MAC
+        try{
+            Scanner scanner = new Scanner(System.in);
+            System.out.print("Insert MAC password for server operations: ");
+            String macPassword = scanner.nextLine();
 
-        //     byte[] pass = macPassword.getBytes();
-        //     SecretKey key = new SecretKeySpec(pass, 0, pass.length, "HmacSHA256");
+            byte[] pass = macPassword.getBytes();
+            SecretKey key = new SecretKeySpec(pass, 0, pass.length, "HmacSHA256");
 
-        //     String macCalculado = calcularMAC("users", key);
+            // Calcular MAC com a password inserida
+            String macCalculado = calcularMAC("users", key);
 
-        //     String macArmazenado = Files.readString(Paths.get("mySaude.mac"));
+            // Ler o MAC armazenado no ficheiro
+            String macArmazenado = Files.readString(Paths.get("mySaude.mac")).trim();
                 
-        //     if (!macCalculado.equals(macArmazenado)) {
-        //         System.out.println("ERRO: Ficheiro de passwords foi modificado!");
-        //         System.out.println("MAC esperado: " + macArmazenado);
-        //         System.out.println("MAC calculado: " + macCalculado);
-        //         System.exit(1); 
-        //     }
+            if (!macCalculado.equals(macArmazenado)) {
+                System.out.println("ERRO: Ficheiro de passwords foi modificado!");
+                System.out.println("MAC esperado: " + macArmazenado);
+                System.out.println("MAC calculado: " + macCalculado);
+                System.exit(1); 
+            }
             
-        //     System.out.println("✓ Verificação de integridade OK");
-        //     // fim autenticação do servidor usando MAC
-        // } catch (Exception e) {
-        //     System.err.println("Erro durante autenticação do servidor: " + e.getMessage());
-        //     System.exit(1);
-        // }
+            System.out.println("✓ Verificação de integridade OK");
+            
+        } catch (Exception e) {
+            System.err.println("Erro durante autenticação do servidor: " + e.getMessage());
+            System.exit(1);
+        }
 
 
         int port = Integer.parseInt(args[0]);
