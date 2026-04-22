@@ -30,7 +30,7 @@ public class mySaudeServer {
             String macCalculado = calcularMAC("serverFiles/users", macPassword);
 
             // Ler o MAC armazenado no ficheiro
-            String macArmazenado = Files.readString(Paths.get("serverFiles/mySaude.mac")).trim();
+            String macArmazenado = Files.readString(Paths.get(MAC_FILE)).trim();
                 
             if (!macCalculado.equals(macArmazenado)) {
                 System.out.println("ERRO: mac não corresponde!");
